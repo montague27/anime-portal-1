@@ -2,6 +2,7 @@ import { CHARACTERS } from './characters.js';
 
 import { WIDTH, HEIGHT, CELL_SIZE, bulkheads, furniture, isDeckCell } from './layout.js';
 export { WIDTH, HEIGHT, CELL_SIZE, bulkheads, furniture } from './layout.js';
+export const PLAYER_STEP_SECONDS = 0.10;
 
 export const DIRECTIONS = {
   up: { x: 0, z: -1, angle: Math.PI },
@@ -19,9 +20,7 @@ const equipment = [
 ];
 const startingFigures = [
   { figure: 'miku', name: 'Miku', x: 5, z: 3 },
-  { figure: 'shino', name: CHARACTERS.shino.name, x: 2, z: 9 },
-  { figure: 'shibu', name: CHARACTERS.shibu.name, x: 8, z: 8 },
-  { figure: 'vita', name: CHARACTERS.vita.name, x: 5, z: 20 },
+  { figure: 'makima', name: CHARACTERS.makima.name, x: 5, z: 20 },
 ];
 // Bulkheads and furniture share one grid map with the rendered aircraft.
 const fixtures = [...bulkheads, ...furniture];
@@ -66,7 +65,9 @@ export function greetNpc(state, npc, now, partner = state.player) {
   npc.greetingUntil = now + 2.4;
   npc.nextGreeting = now + 8;
   npc.nextThink = now + 2.6;
-  npc.angle = Math.atan2(partner.x - npc.x, partner.z - npc.z);
+  const greetingAngle = Math.atan2(partner.x - npc.x, partner.z - npc.z);
+  if (motionActive(npc, now)) npc.greetingAngle = greetingAngle;
+  else npc.angle = greetingAngle;
   npc.destination = null;
   return npc;
 }
@@ -115,11 +116,11 @@ export function movePlayer(state, direction, now = 0) {
     if (isBlocked(nextX, nextZ) || occupied(state, nextX, nextZ, now, crate)) {
       return { moved: false };
     }
-    beginMove(crate, nextX, nextZ, now, 0.20);
+    beginMove(crate, nextX, nextZ, now, PLAYER_STEP_SECONDS);
   } else if (occupied(state, x, z, now, state.player)) {
     return { moved: false };
   }
-  beginMove(state.player, x, z, now, 0.20);
+  beginMove(state.player, x, z, now, PLAYER_STEP_SECONDS);
   return { moved: true, pushed: crate?.id };
 }
 
@@ -142,11 +143,13 @@ function findNextStep(state, npc, destination, now) {
 
 export function updateNpcs(state, now, random = Math.random) {
   for (const npc of state.npcs) {
-    if (motionActive(npc, now) || now < npc.nextThink) continue;
+    if (motionActive(npc, now)) continue;
+    if (npc.greetingAngle !== undefined) { npc.angle = npc.greetingAngle; delete npc.greetingAngle; }
+    if (npc.talking || now < npc.nextThink) continue;
     const timing = CHARACTERS[npc.figure];
     npc.action = 'idle';
     const partner = [state.player, ...state.npcs.filter((other) => other !== npc)]
-      .find((actor) => !motionActive(actor, now) &&
+      .find((actor) => !actor.talking && !motionActive(actor, now) &&
         Math.abs(actor.x - npc.x) + Math.abs(actor.z - npc.z) === 1);
     if (partner && now >= npc.nextGreeting) {
       greetNpc(state, npc, now, partner);
@@ -169,10 +172,15 @@ export function updateNpcs(state, now, random = Math.random) {
       npc.nextThink = now + timing.pause;
       continue;
     }
+    const turn = Math.atan2(Math.sin(next.angle - npc.angle), Math.cos(next.angle - npc.angle));
     npc.angle = next.angle;
+    if (Math.abs(turn) > 0.35) {
+      npc.nextThink = now + Math.abs(turn) / 3.4;
+      continue;
+    }
     beginMove(npc, next.x, next.z, now, timing.speed);
     const arrived = npc.x === npc.destination.x && npc.z === npc.destination.z;
-    npc.nextThink = now + timing.speed + (arrived ? timing.pause : 0.06);
+    npc.nextThink = now + timing.speed + (arrived ? timing.pause : 0);
     if (arrived) npc.destination = null;
   }
 }

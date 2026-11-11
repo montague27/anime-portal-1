@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { CHARACTERS } from './characters.js';
+import { createFigureMotion, updateFigureMotion } from './character-motion.js';
 
 export async function loadAuthoredFigure(kind) {
   const asset = CHARACTERS[kind];
@@ -16,7 +17,8 @@ export async function loadAuthoredFigure(kind) {
   const root = new THREE.Group();
   root.name = asset.name;
   root.userData.figure = kind;
-  root.userData.assetRig = { vrm };
+  const motion = createFigureMotion();
+  root.userData.assetRig = { vrm, motion };
   root.add(vrm.scene);
   vrm.scene.traverse((part) => {
     if (!part.isMesh) return;
@@ -24,7 +26,7 @@ export async function loadAuthoredFigure(kind) {
     part.castShadow = true;
     part.receiveShadow = true;
   });
-  applyPose(vrm, 0, false, 'idle', true);
+  updateFigureMotion(vrm, motion, { time: 0, delta: 0, reducedMotion: true, snap: true });
   vrm.update(0);
   root.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(vrm.scene, true);
@@ -35,42 +37,12 @@ export async function loadAuthoredFigure(kind) {
   return root;
 }
 
-function applyPose(vrm, time, moving, action, reducedMotion) {
-  const stride = moving && !reducedMotion ? Math.sin(time * 10) : 0;
-  const greeting = !moving && action !== 'idle';
-  const wave = greeting && !reducedMotion ? Math.sin(time * 7) : 0;
-  const leftArm = new THREE.Euler(stride * 0.18, 0, 1.30);
-  const rightArm = new THREE.Euler(-stride * 0.18, 0, -1.30);
-  if (greeting) {
-    if (action === 'dance' || action === 'cheer') {
-      leftArm.z = (action === 'cheer' ? -0.40 : 0.35) + wave * 0.10;
-      rightArm.z = (action === 'cheer' ? 0.40 : -0.35) + wave * 0.10;
-    }
-    if (action === 'wave') rightArm.z = 0.25 + wave * 0.16;
-  }
-  const rotation = (euler) => ({ rotation: new THREE.Quaternion().setFromEuler(euler).toArray() });
-  vrm.humanoid.setNormalizedPose({
-    leftUpperArm: rotation(leftArm),
-    rightUpperArm: rotation(rightArm),
-    leftLowerArm: rotation(new THREE.Euler(-0.12, 0, -0.06)),
-    rightLowerArm: rotation(new THREE.Euler(action === 'wave' && greeting ? -0.8 : -0.12, 0, 0.06)),
-    leftUpperLeg: rotation(new THREE.Euler(stride * 0.25, 0, 0)),
-    rightUpperLeg: rotation(new THREE.Euler(-stride * 0.25, 0, 0)),
-    leftLowerLeg: rotation(new THREE.Euler(Math.max(0, -stride) * 0.28, 0, 0)),
-    rightLowerLeg: rotation(new THREE.Euler(Math.max(0, stride) * 0.28, 0, 0)),
-    spine: rotation(new THREE.Euler(0, 0, greeting ? wave * 0.025 : 0)),
-    head: rotation(new THREE.Euler(greeting && action === 'nod' ? Math.abs(wave) * 0.18 : 0,
-      0, greeting ? wave * 0.035 : 0)),
-  });
-  const blink = reducedMotion ? 0 : Math.exp(-Math.pow(((time % 4.7) - 3.4) / 0.075, 2));
-  vrm.expressionManager?.setValue('blink', blink);
-  vrm.expressionManager?.setValue('happy', greeting ? 0.25 : 0);
-}
-
 export function animateAuthoredFigure(root, { time, delta, moving, angle, action, reducedMotion }) {
-  const { vrm } = root.userData.assetRig;
+  const { vrm, motion } = root.userData.assetRig;
   const difference = Math.atan2(Math.sin(angle - root.rotation.y), Math.cos(angle - root.rotation.y));
-  root.rotation.y += difference * (reducedMotion ? 1 : 1 - Math.exp(-delta * 12));
-  applyPose(vrm, time, moving, action, reducedMotion);
+  root.rotation.y += THREE.MathUtils.clamp(difference * (1 - Math.exp(-delta * 9)), -delta * 3.4, delta * 3.4);
+  const distance = motion.position ? root.position.distanceTo(motion.position) : 0;
+  motion.position = root.position.clone();
+  updateFigureMotion(vrm, motion, { time, delta, moving, action, reducedMotion, distance: distance < 0.5 ? distance : 0 });
   vrm.update(delta);
 }

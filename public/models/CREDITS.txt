@@ -10,11 +10,11 @@ The original VRM file is retained without modification.
 The repository description also credits Jjinomu. This differs from the Tda
 credit embedded in this particular V2 file, so both are recorded here.
 
-Sendagaya Shino, Sendagaya Shibu, Vita
-Creator: pixiv / VRoid Project.
-License: CC0, as declared in the embedded VRM metadata of all three files.
-Distribution: https://github.com/madjin/vrm-samples/tree/master/vroid/beta
-Original files: Sendagaya_Shino.vrm, Sendagaya_Shibu.vrm, Vita.vrm.
-VRoid sample-model terms:
-https://vroid.pixiv.help/hc/en-us/articles/4402614652569
-Files are retained without modification. Names are shortened only in filenames.
+Makima (Chainsaw Man)
+User-provided file: C:/Users/sunny/Downloads/makima.vrm.
+Embedded model title: makima.
+Embedded author credit: millary.
+Embedded VRM metadata: Redistribution_Prohibited; commercial, violent and sexual
+usage disallowed; allowedUserName is OnlyAuthor.
+The supplied file is copied intact, without modifying the model or its metadata.
+No broader usage or redistribution rights are claimed by this project.

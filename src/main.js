@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { createToasty } from './toasty.js';
 import { createPortrait, createEncounterPortrait } from './portrait.js';
 import { createAircraft, createSky } from './aircraft.js';
+import { createConversation } from './conversation.js';
 import { loadAuthoredFigure, animateAuthoredFigure } from './character-assets.js';
 import {
   createWorkshop, movePlayer, worldPosition, DIRECTIONS, WIDTH, HEIGHT, CELL_SIZE,
-  updateNpcs, greetNpc, motionActive, nearbyCharacter,
+  updateNpcs, greetNpc, motionActive, nearbyCharacter, PLAYER_STEP_SECONDS,
 } from './workshop.js';
 import './style.css';
 
@@ -17,7 +18,6 @@ const keyDirections = {
   KeyW: 'up', KeyA: 'left', KeyS: 'down', KeyD: 'right',
   ArrowUp: 'up', ArrowLeft: 'left', ArrowDown: 'down', ArrowRight: 'right',
 };
-const STEP_SECONDS = 0.20;
 const DEFAULT_ZOOM = 1;
 
 function start() {
@@ -28,7 +28,7 @@ function start() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Explore the carrier with WASD or arrow keys. Click crew to greet them, or click the drone bay, radar, charging banks, payload hatch, and cargo conveyor to operate them. Scroll to zoom.');
+  renderer.domElement.setAttribute('aria-label', 'Explore the carrier with WASD or arrow keys. Press E near a crew member to talk. Click mission stations to operate them. Scroll to zoom.');
   viewport.append(renderer.domElement);
   const renderPortrait = createPortrait(document.querySelector('#toasty-portrait'));
 
@@ -152,6 +152,12 @@ function start() {
   let step = null;
   let targetAngle = 0;
   let simulationTime = 0;
+  const conversation = createConversation(document.querySelector('#conversation'), (npc) => {
+    npc.talking = false;
+    npc.greetingUntil = 0;
+    npc.nextThink = simulationTime + 0.8;
+    renderer.domElement.focus({ preventScroll: true });
+  });
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const setPosition = (object, cell) => {
     const [x, z] = worldPosition(cell.x, cell.z);
@@ -222,10 +228,25 @@ function start() {
     queuedDirection = '';
     directionButtons.forEach((button) => button.classList.remove('active'));
   };
+  const talkNearby = () => {
+    if (!charactersReady || conversation.character) return;
+    const npc = nearbyCharacter(state, simulationTime);
+    if (!npc) { status.textContent = 'Move closer to a character to talk.'; return; }
+    releaseInputs();
+    greetNpc(state, npc, simulationTime);
+    npc.talking = true;
+    conversation.open(npc);
+  };
+  document.querySelector('#talk').addEventListener('click', talkNearby);
   window.addEventListener('keydown', (event) => {
-    if (!charactersReady) return;
+    if (!charactersReady || conversation.character) return;
     if (event.target.closest('input, textarea, select, [contenteditable="true"]') ||
         event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.code === 'KeyE') {
+      event.preventDefault();
+      if (!event.repeat) talkNearby();
+      return;
+    }
     const direction = keyDirections[event.code];
     if (!direction) return;
     event.preventDefault();
@@ -240,7 +261,7 @@ function start() {
   });
   for (const button of directionButtons) {
     button.addEventListener('pointerdown', (event) => {
-      if (!charactersReady) return;
+      if (!charactersReady || conversation.character) return;
       event.preventDefault();
       button.setPointerCapture(event.pointerId);
       const direction = button.dataset.direction;
@@ -276,7 +297,7 @@ function start() {
     const now = simulationTime;
     let progress = 0;
     if (step) {
-      progress = THREE.MathUtils.clamp((now - step.startedAt) / STEP_SECONDS, 0, 1);
+      progress = THREE.MathUtils.clamp((now - step.startedAt) / PLAYER_STEP_SECONDS, 0, 1);
       const blend = reducedMotion.matches ? 1 : THREE.MathUtils.smoothstep(progress, 0, 1);
       const [x, z] = worldPosition(state.player.x, state.player.z);
       bot.root.position.lerpVectors(step.botStart, new THREE.Vector3(x, 0, z), blend);
@@ -288,7 +309,7 @@ function start() {
       if (progress >= 1) step = null;
     }
 
-    if (!step) {
+    if (!step && !conversation.character) {
       const direction = queuedDirection || [...held.values()].at(-1);
       queuedDirection = '';
       if (direction) {
@@ -328,7 +349,7 @@ function start() {
       model.position.set(x, 0, z);
       if (motionActive(npc, now)) {
         const [fromX, fromZ] = worldPosition(npc.motion.fromX, npc.motion.fromZ);
-        const blend = reducedMotion.matches ? 1 : THREE.MathUtils.smoothstep(
+        const blend = reducedMotion.matches ? 1 : THREE.MathUtils.clamp(
           (now - npc.motion.startedAt) / npc.motion.duration, 0, 1,
         );
         model.position.x = THREE.MathUtils.lerp(fromX, x, blend);
@@ -343,7 +364,7 @@ function start() {
     selectedTile.position.x = bot.root.position.x;
     selectedTile.position.z = bot.root.position.z;
     renderer.render(scene, camera);
-    const nearby = nearbyCharacter(state, now);
+    const nearby = conversation.character || nearbyCharacter(state, now);
     encounter.hidden = !nearby;
     if (nearby) {
       if (encounterName.textContent !== nearby.name) encounterName.textContent = nearby.name;

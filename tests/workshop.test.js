@@ -12,6 +12,12 @@ function seededRandom() {
   };
 }
 
+test('crew consists only of Miku and Makima', () => {
+  assert.deepEqual(createWorkshop().npcs.map(({ figure, name }) => [figure, name]), [
+    ['miku', 'Miku'], ['makima', 'Makima'],
+  ]);
+});
+
 test('NPCs roam independently while preserving occupied and reserved cells', () => {
   const state = createWorkshop();
   const random = seededRandom();
@@ -75,7 +81,7 @@ test('NPCs greet one another without moving through one another', () => {
   Object.assign(state.npcs[1], { x: 2, z: 9, nextThink: 0 });
   updateNpcs(state, 1, seededRandom());
   assert.equal(state.npcs[0].action, 'dance');
-  assert.equal(state.npcs[1].action, 'cheer');
+  assert.equal(state.npcs[1].action, 'nod');
   assert(state.npcs.every((npc) => npc.greetingUntil > 1));
   assert(state.npcs.every((npc) => !npc.motion));
 });
@@ -83,10 +89,10 @@ test('NPCs greet one another without moving through one another', () => {
 test('nearby interaction selects a character and respects distance', () => {
   const state = createWorkshop();
   assert.equal(interactNearby(state, 1), undefined);
-  state.npcs[3].x = 6;
-  state.npcs[3].z = 15;
-  assert.equal(interactNearby(state, 2).name, 'Vita');
-  assert.equal(state.npcs[3].action, 'wave');
+  state.npcs[1].x = 6;
+  state.npcs[1].z = 15;
+  assert.equal(interactNearby(state, 2).name, 'Makima');
+  assert.equal(state.npcs[1].action, 'nod');
 });
 
 test('reset restores NPC positions, decisions, greetings and object positions', () => {
@@ -97,6 +103,18 @@ test('reset restores NPC positions, decisions, greetings and object positions', 
   assert.deepEqual(createWorkshop(), original);
 });
 
+test('crew turn in place before walking into a new direction', () => {
+  const state = createWorkshop();
+  state.crates = [];
+  state.npcs = [{ ...state.npcs[0], x: 5, z: 10, angle: 0, nextThink: 0, destination: { x: 6, z: 10 } }];
+  updateNpcs(state, 1);
+  assert.equal(state.npcs[0].angle, Math.PI / 2);
+  assert.equal(state.npcs[0].motion, undefined, 'Turn before translating sideways');
+  updateNpcs(state, 1.6);
+  assert.equal(state.npcs[0].x, 6);
+  assert(motionActive(state.npcs[0], 1.6));
+});
+
 test('encounter selects the nearest reachable crew member and ignores bulkheads', () => {
   const state = createWorkshop();
   state.crates = [];
@@ -104,7 +122,7 @@ test('encounter selects the nearest reachable crew member and ignores bulkheads'
   state.npcs = [
     { ...state.npcs[0], x: 2, z: 7 }, // Two tiles away, through the cabin wall.
     { ...state.npcs[1], x: 5, z: 8 },
-    { ...state.npcs[2], x: 5, z: 7 },
+    { ...state.npcs[1], id: 2, x: 5, z: 7 },
   ];
   assert.equal(nearbyCharacter(state, 1).id, 2);
   state.npcs.pop();
