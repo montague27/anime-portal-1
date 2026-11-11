@@ -1,17 +1,17 @@
 import * as THREE from 'three';
 import { createToasty } from './toasty.js';
-import { createRoom } from './room.js';
+import { createPortrait } from './portrait.js';
+import { createAircraft, createSky } from './aircraft.js';
 import { loadAuthoredFigure, animateAuthoredFigure } from './character-assets.js';
 import {
   createWorkshop, movePlayer, worldPosition, DIRECTIONS, WIDTH, HEIGHT, CELL_SIZE,
-  updateNpcs, interactNearby, greetNpc, motionActive,
+  updateNpcs, greetNpc, motionActive,
 } from './workshop.js';
 import './style.css';
 
 const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
 const reset = document.querySelector('#reset');
-const greet = document.querySelector('#greet');
 const loading = document.querySelector('#loading');
 const directionButtons = [...document.querySelectorAll('[data-direction]')];
 const keyDirections = {
@@ -19,6 +19,7 @@ const keyDirections = {
   ArrowUp: 'up', ArrowLeft: 'left', ArrowDown: 'down', ArrowRight: 'right',
 };
 const STEP_SECONDS = 0.20;
+const DEFAULT_ZOOM = 1;
 
 function start() {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -28,12 +29,14 @@ function start() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push crates. Press E near Miku, Shino, Shibu, or Vita to greet them, or click a character. Scroll to zoom.');
+  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push equipment or click a character to greet them. Scroll to zoom.');
   viewport.append(renderer.domElement);
+  const renderPortrait = createPortrait(document.querySelector('#toasty-portrait'));
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x152f35);
+  scene.background = new THREE.Color(0xb9e4fa);
   const camera = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 80);
+  camera.zoom = DEFAULT_ZOOM;
   camera.position.set(10, 14, 15);
   camera.lookAt(0, 0, 0);
   scene.add(new THREE.HemisphereLight(0xfff6ec, 0x537e86, 1.8));
@@ -41,7 +44,7 @@ function start() {
   light.position.set(-5, 13, 7);
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
-  Object.assign(light.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 0.5, far: 40 });
+  Object.assign(light.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 0.5, far: 60 });
   light.shadow.normalBias = 0.025;
   scene.add(light);
   scene.add(new THREE.DirectionalLight(0xb2e9e9, 1.3));
@@ -49,8 +52,9 @@ function start() {
   let state = createWorkshop();
   let charactersReady = false;
   let loadingCharacters = false;
-  greet.disabled = true;
-  const crates = createRoom(scene, state);
+  const aircraft = createAircraft(scene, state);
+  const { crates } = aircraft;
+  const updateSky = createSky(scene);
   const npcModels = state.npcs.map((npc) => {
     const model = new THREE.Group();
     model.userData.npcId = npc.id;
@@ -77,7 +81,6 @@ function start() {
     charactersReady = failures.length === 0;
     loadingCharacters = false;
     loading.hidden = charactersReady;
-    greet.disabled = !charactersReady;
     if (!charactersReady) {
       failures.forEach((result) => console.error('Character loading failed:', result.reason));
       loading.textContent = 'A character could not load. Press reset to retry.';
@@ -94,30 +97,30 @@ function start() {
   selectedTile.position.y = 0.012;
   scene.add(selectedTile);
 
-  // Fit the room's projected corners, keeping movement directions consistent.
+  // Fit the actual silhouette instead of an oversized rectangular sky area.
   const fitCamera = () => {
     const width = viewport.clientWidth;
     const height = viewport.clientHeight;
     if (!width || !height) return;
     camera.updateMatrixWorld();
-    let projectedWidth = 0;
-    let projectedHeight = 0;
-    for (const x of [-1, 1]) {
-      for (const z of [-1, 1]) {
-        const point = new THREE.Vector3(
-          x * (WIDTH * CELL_SIZE / 2 + 0.5), 0,
-          z * (HEIGHT * CELL_SIZE / 2 + 0.5),
-        ).applyMatrix4(camera.matrixWorldInverse);
-        projectedWidth = Math.max(projectedWidth, Math.abs(point.x));
-        projectedHeight = Math.max(projectedHeight, Math.abs(point.y));
-      }
+    const halfW = WIDTH * CELL_SIZE / 2, halfD = HEIGHT * CELL_SIZE / 2;
+    const outline = [[0, 1.6, -halfD - 7.4], [0, 2, halfD + 2.7]];
+    for (const side of [-1, 1]) {
+      for (const z of [-halfD, halfD]) outline.push([side * (halfW + 0.6), 0, z]);
+      for (const z of [-2.4, 4.4]) outline.push([side * (halfW + 5.4), -0.7, z]);
     }
+    const projected = outline.map((point) => new THREE.Vector3(...point).applyMatrix4(camera.matrixWorldInverse));
+    const minX = Math.min(...projected.map((point) => point.x));
+    const maxX = Math.max(...projected.map((point) => point.x));
+    const minY = Math.min(...projected.map((point) => point.y));
+    const maxY = Math.max(...projected.map((point) => point.y));
+    const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
     const aspect = width / height;
-    const roomHeight = Math.max(projectedHeight + 1.1, projectedWidth / aspect + 0.7);
-    camera.left = -roomHeight * aspect;
-    camera.right = roomHeight * aspect;
-    camera.top = roomHeight;
-    camera.bottom = -roomHeight;
+    const roomHeight = Math.max((maxY - minY) / 2 + 1.5, (maxX - minX) / (aspect * 2) + 1.0);
+    camera.left = centerX - roomHeight * aspect;
+    camera.right = centerX + roomHeight * aspect;
+    camera.top = centerY + roomHeight;
+    camera.bottom = centerY - roomHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
   };
@@ -162,12 +165,6 @@ function start() {
   };
   syncPositions();
 
-  const greetNearby = () => {
-    if (!charactersReady) return;
-    const npc = interactNearby(state, simulationTime);
-    status.textContent = npc ? 'Greeting ' + npc.name + '.' : 'Move closer to a character to greet them.';
-  };
-  greet.addEventListener('click', greetNearby);
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   renderer.domElement.addEventListener('pointerup', (event) => {
@@ -196,25 +193,20 @@ function start() {
     releaseInputs();
     state = createWorkshop();
     simulationTime = 0;
-    camera.zoom = 1;
+    camera.zoom = DEFAULT_ZOOM;
     camera.position.set(10, 14, 15);
     camera.updateProjectionMatrix();
     step = null;
     targetAngle = 0;
     bot.root.rotation.y = 0;
     syncPositions();
-    status.textContent = 'Workshop reset.';
+    status.textContent = 'Aircraft reset.';
     if (!charactersReady) void loadCharacters();
   });
   window.addEventListener('keydown', (event) => {
     if (!charactersReady) return;
     if (event.target.closest('input, textarea, select, [contenteditable="true"]') ||
         event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.code === 'KeyE') {
-      event.preventDefault();
-      if (!event.repeat) greetNearby();
-      return;
-    }
     const direction = keyDirections[event.code];
     if (!direction) return;
     event.preventDefault();
@@ -252,6 +244,11 @@ function start() {
     const delta = Math.min(realTime - lastTime, 0.05);
     lastTime = realTime;
     if (document.hidden) return;
+    renderPortrait(realTime, reducedMotion.matches);
+    if (!reducedMotion.matches) {
+      updateSky(delta);
+      aircraft.update(delta);
+    }
     if (!charactersReady) {
       renderer.render(scene, camera);
       return;
@@ -338,6 +335,5 @@ try {
   document.querySelector('#render-error').hidden = false;
   loading.hidden = true;
   reset.disabled = true;
-  greet.disabled = true;
   directionButtons.forEach((button) => { button.disabled = true; });
 }

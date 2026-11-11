@@ -1,7 +1,7 @@
 import { CHARACTERS } from './characters.js';
 
-export const WIDTH = 15;
-export const HEIGHT = 11;
+export const WIDTH = 19;
+export const HEIGHT = 15;
 export const CELL_SIZE = 1.18;
 
 export const DIRECTIONS = {
@@ -12,6 +12,14 @@ export const DIRECTIONS = {
 };
 
 const startingCrates = [[6, 5], [6, 4], [10, 5], [2, 7], [9, 6], [7, 6]];
+const equipment = [
+  { x: 7, z: 10, kind: 'battery', name: 'Battery box' },
+  { x: 10, z: 11, kind: 'battery', name: 'Battery box' },
+  { x: 15, z: 4, kind: 'battery', name: 'Battery box' },
+  { x: 6, z: 12, kind: 'toolbox', name: 'Toolbox' },
+  { x: 12, z: 10, kind: 'toolbox', name: 'Toolbox' },
+  { x: 15, z: 12, kind: 'toolbox', name: 'Toolbox' },
+];
 const startingFigures = [
   { figure: 'miku', name: 'Miku', x: 2, z: 3 },
   { figure: 'shino', name: CHARACTERS.shino.name, x: 4, z: 2 },
@@ -21,13 +29,13 @@ const startingFigures = [
 // Bulkheads and furniture share one grid map with the rendered aircraft.
 export const bulkheads = [
   ...Array.from({ length: WIDTH }, (_, x) => [x, 3]).filter(([x]) => ![2, 7, 8].includes(x)),
-  ...[4, 5, 8, 9, 10].map((z) => [4, z]),
+  ...Array.from({ length: HEIGHT - 4 }, (_, i) => i + 4).filter((z) => ![6, 7].includes(z)).map((z) => [4, z]),
 ];
 export const furniture = [
   ...[1, 2, 3, 5, 6, 8, 9, 11, 12, 13].map((x) => [x, 0]),
   [5, 1], [9, 1],
-  [1, 5], [2, 5], [1, 8], [2, 8],
-  [12, 7], [13, 7], [12, 9], [13, 9], [12, 5], [13, 5],
+  ...[5, 8, 11].flatMap((z) => [[1, z], [2, z]]),
+  ...[5, 7, 9].flatMap((z) => [[WIDTH - 3, z], [WIDTH - 2, z]]),
 ];
 const fixtures = [...bulkheads, ...furniture];
 const key = (x, z) => x + ',' + z;
@@ -36,7 +44,8 @@ const fixedCells = new Set(fixtures.map(([x, z]) => key(x, z)));
 export function createWorkshop() {
   return {
     player: { x: 5, z: 6 },
-    crates: startingCrates.map(([x, z], id) => ({ x, z, id })),
+    crates: [...startingCrates.map(([x, z]) => ({ x, z, kind: 'cargo', name: 'Cargo crate' })), ...equipment]
+      .map((item, id) => ({ ...item, id })),
     npcs: startingFigures.map((npc, id) => ({
       ...npc, id, angle: 0, nextThink: 0.8 + id * 0.6,
       greetingUntil: 0, nextGreeting: 0, action: 'idle', destination: null,

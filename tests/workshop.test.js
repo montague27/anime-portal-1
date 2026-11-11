@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createWorkshop, movePlayer, updateNpcs, interactNearby, isBlocked, motionActive,
+  createWorkshop, movePlayer, updateNpcs, interactNearby, isBlocked, motionActive, WIDTH, HEIGHT,
 } from '../src/workshop.js';
 
 function seededRandom() {
@@ -71,8 +71,8 @@ test('crate pushing respects an NPC’s reserved departure cell', () => {
 test('NPCs greet one another without moving through one another', () => {
   const state = createWorkshop();
   state.npcs = state.npcs.slice(0, 2);
-  Object.assign(state.npcs[0], { x: 2, z: 3, nextThink: 0 });
-  Object.assign(state.npcs[1], { x: 3, z: 3, nextThink: 0 });
+  Object.assign(state.npcs[0], { x: 2, z: 4, nextThink: 0 });
+  Object.assign(state.npcs[1], { x: 3, z: 4, nextThink: 0 });
   updateNpcs(state, 1, seededRandom());
   assert.equal(state.npcs[0].action, 'dance');
   assert.equal(state.npcs[1].action, 'cheer');
@@ -95,4 +95,29 @@ test('reset restores NPC positions, decisions, greetings and object positions', 
   updateNpcs(running, 5, seededRandom());
   interactNearby(running, 6);
   assert.deepEqual(createWorkshop(), original);
+});
+
+test('aircraft rooms connect through doorways and walls block walking and cargo', () => {
+  const state = createWorkshop();
+  const queue = [{ ...state.player }];
+  const reached = new Set([state.player.x + ',' + state.player.z]);
+  for (const cell of queue) {
+    for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const x = cell.x + dx, z = cell.z + dz, key = x + ',' + z;
+      if (isBlocked(x, z) || reached.has(key)) continue;
+      reached.add(key);
+      queue.push({ x, z });
+    }
+  }
+  for (let z = 0; z < HEIGHT; z++) for (let x = 0; x < WIDTH; x++) {
+    if (!isBlocked(x, z)) assert(reached.has(x + ',' + z), 'Disconnected cabin cell: ' + x + ',' + z);
+  }
+  assert(reached.has('7,1'), 'Cockpit is accessible');
+  assert(reached.has('2,6'), 'Rest cabin is accessible');
+  assert(reached.has('12,8'), 'Main lounge is accessible');
+  state.player = { x: 5, z: 4 };
+  assert.equal(movePlayer(state, 'up').moved, false, 'Cannot walk through cockpit bulkhead');
+  state.player = { x: 5, z: 5 };
+  state.crates = [{ id: 0, x: 5, z: 4 }];
+  assert.equal(movePlayer(state, 'up').moved, false, 'Cannot push cargo through a bulkhead');
 });

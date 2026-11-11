@@ -3,23 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#152f35" />
-    <meta name="description" content="Explore Toasty's workshop with Miku, Shino, Shibu, and Vita. Move with WASD and press E to greet the characters." />
-    <title>Toasty's Workshop</title>
+    <meta name="theme-color" content="#b9e4fa" />
+    <meta name="description" content="Explore Toasty's flying aircraft with Miku, Shino, Shibu, and Vita. Visit the cockpit, rest cabin, and main lounge." />
+    <title>Toasty's Sky Cruiser</title>
   </head>
   <body>
-    <main id="game" aria-label="Toasty's workshop">
+    <main id="game" aria-label="Toasty's flying aircraft">
       <div id="viewport"></div>
-      <p id="loading" role="status">Loading characters…</p>
-      <button id="reset" class="reset" type="button" aria-label="Reset workshop" title="Reset workshop">↺</button>
-      <div class="controls"><span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>Move · Push crates</span><button id="greet" type="button" title="Greet a nearby character"><kbd>E</kbd> Greet</button></div>
+      <p id="loading" role="status">Loading characters&hellip;</p>
+      <button id="reset" class="reset" type="button" aria-label="Reset aircraft" title="Reset aircraft">&#8634;</button>
+      <aside class="player-hud" aria-label="Toasty character stats">
+        <div class="avatar" role="img" aria-label="Toasty's 3D model">
+          <canvas id="toasty-portrait" aria-hidden="true"></canvas>
+        </div>
+        <div class="player-panel">
+          <div class="player-name">TOASTY</div>
+          <dl class="player-stats">
+            <div class="stat power" title="Mechanical power">
+              <dt><span class="sr-only">Mechanical power</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-.6 2.2-2 .9-2-.7-2 3.4L5 10.5v2.8l-1.6 1.6 2 3.4 2.2-.7 1.9 1 .6 2.4h3.8l.6-2.3 2-.9 2 .7 2-3.4-1.5-1.6v-2.8l1.6-1.6-2-3.4-2.2.7-1.9-1L13.9 3Z"/><circle cx="12" cy="12" r="3"/></svg></dt>
+              <dd>80</dd>
+            </div>
+            <div class="stat intelligence" title="Intelligence">
+              <dt><span class="sr-only">Intelligence</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.7-1 3.5 3.5 0 0 0-3 5.3 4 4 0 0 0 .2 6.8A3.5 3.5 0 0 0 9 20.5c1.6.8 3-.3 3-2.1V5Zm0 0a3 3 0 0 1 5.7-1 3.5 3.5 0 0 1 3 5.3 4 4 0 0 1-.2 6.8 3.5 3.5 0 0 1-5.5 4.4c-1.6.8-3-.3-3-2.1"/><path d="M7 7c2 0 2 2 2 3m-5 3c3-1 5 0 5 3m8-9c-2 0-2 2-2 3m5 3c-3-1-5 0-5 3"/></svg></dt>
+              <dd>65</dd>
+            </div>
+            <div class="stat resources" title="Storage size">
+              <dt><span class="sr-only">Storage size</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7 9-4 9 4v11l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v11M7.5 5 17 9v5"/></svg></dt>
+              <dd>24</dd>
+            </div>
+          </dl>
+        </div>
+      </aside>
       <div class="dpad" role="group" aria-label="Movement controls">
-        <button type="button" data-direction="up" aria-label="Move forward">↑</button>
-        <button type="button" data-direction="left" aria-label="Move left">←</button>
-        <button type="button" data-direction="down" aria-label="Move backward">↓</button>
-        <button type="button" data-direction="right" aria-label="Move right">→</button>
+        <button type="button" data-direction="up" aria-label="Move forward">&#8593;</button>
+        <button type="button" data-direction="left" aria-label="Move left">&#8592;</button>
+        <button type="button" data-direction="down" aria-label="Move backward">&#8595;</button>
+        <button type="button" data-direction="right" aria-label="Move right">&#8594;</button>
       </div>
-      <p id="render-error" hidden>Your browser couldn’t start WebGL. Try enabling hardware acceleration.</p>
+      <p id="render-error" hidden>Your browser could not start WebGL. Try enabling hardware acceleration.</p>
       <p id="status" class="sr-only" role="status"></p>
     </main>
     <script type="module" src="./src/main.js"></script>
