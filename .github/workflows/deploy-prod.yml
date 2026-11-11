@@ -1,0 +1,41 @@
+name: azure for ap-1
+
+env:
+  APP_LOCATION: "."
+  OUTPUT_LOCATION: "dist"
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  packages: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  build_and_deploy:
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: prod
+    name: Build and Deploy
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Build And Deploy
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: ${{ env.APP_LOCATION }}
+          api_location: ""
+          output_location: ${{ env.OUTPUT_LOCATION }}
+          app_build_command: "npm ci --prefix ../../packages/tokens && npm run build"
