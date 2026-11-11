@@ -1,12 +1,17 @@
 import * as THREE from 'three';
 import { createToasty } from './toasty.js';
 import { createRoom } from './room.js';
-import { createWorkshop, movePlayer, worldPosition, DIRECTIONS, WIDTH, HEIGHT, CELL_SIZE } from './workshop.js';
+import { createFigure, animateFigure } from './figures.js';
+import {
+  createWorkshop, movePlayer, worldPosition, DIRECTIONS, WIDTH, HEIGHT, CELL_SIZE,
+  updateNpcs, interactNearby, greetNpc, motionActive,
+} from './workshop.js';
 import './style.css';
 
 const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
 const reset = document.querySelector('#reset');
+const greet = document.querySelector('#greet');
 const directionButtons = [...document.querySelectorAll('[data-direction]')];
 const keyDirections = {
   KeyW: 'up', KeyA: 'left', KeyS: 'down', KeyD: 'right',
@@ -22,7 +27,7 @@ function start() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.3;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push crates and the Miku, Emu Otori, Aki, and Reze figures one grid cell at a time.');
+  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push crates. Press E near Miku, Emu, Aki, or Reze to greet them, or click a character.');
   viewport.append(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -42,6 +47,12 @@ function start() {
 
   let state = createWorkshop();
   const crates = createRoom(scene, state);
+  const npcModels = state.npcs.map((npc) => {
+    const model = createFigure(npc.figure);
+    model.userData.npcId = npc.id;
+    scene.add(model);
+    return model;
+  });
   const bot = createToasty();
   bot.root.scale.setScalar(0.29);
   scene.add(bot.root);
@@ -87,6 +98,7 @@ function start() {
   let queuedDirection = '';
   let step = null;
   let targetAngle = 0;
+  let simulationTime = 0;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const setPosition = (object, cell) => {
     const [x, z] = worldPosition(cell.x, cell.z);
@@ -95,10 +107,38 @@ function start() {
   const syncPositions = () => {
     setPosition(bot.root, state.player);
     state.crates.forEach((crate) => setPosition(crates[crate.id], crate));
+    state.npcs.forEach((npc) => {
+      const model = npcModels[npc.id];
+      setPosition(model, npc);
+      model.rotation.y = npc.angle;
+    });
     selectedTile.position.x = bot.root.position.x;
     selectedTile.position.z = bot.root.position.z;
   };
   syncPositions();
+
+  const greetNearby = () => {
+    const npc = interactNearby(state, simulationTime);
+    status.textContent = npc ? 'Greeting ' + npc.name + '.' : 'Move closer to a character to greet them.';
+  };
+  greet.addEventListener('click', greetNearby);
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  renderer.domElement.addEventListener('pointerup', (event) => {
+    const bounds = renderer.domElement.getBoundingClientRect();
+    pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1,
+      -(event.clientY - bounds.top) / bounds.height * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(npcModels, true)[0];
+    if (!hit) return;
+    let model = hit.object;
+    while (model.userData.npcId === undefined && model.parent) model = model.parent;
+    const npc = state.npcs[model.userData.npcId];
+    if (npc) {
+      greetNpc(state, npc, simulationTime);
+      status.textContent = 'Greeting ' + npc.name + '.';
+    }
+  });
 
   const releaseInputs = () => {
     held.clear();
@@ -108,6 +148,7 @@ function start() {
   reset.addEventListener('click', () => {
     releaseInputs();
     state = createWorkshop();
+    simulationTime = 0;
     step = null;
     targetAngle = 0;
     bot.root.rotation.y = 0;
@@ -115,9 +156,15 @@ function start() {
     status.textContent = 'Workshop reset.';
   });
   window.addEventListener('keydown', (event) => {
+    if (event.target.closest('input, textarea, select, [contenteditable="true"]') ||
+        event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.code === 'KeyE') {
+      event.preventDefault();
+      if (!event.repeat) greetNearby();
+      return;
+    }
     const direction = keyDirections[event.code];
-    if (!direction || event.ctrlKey || event.metaKey || event.altKey ||
-        event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (!direction) return;
     event.preventDefault();
     if (event.repeat) return;
     held.set(event.code, direction);
@@ -148,9 +195,12 @@ function start() {
 
   let lastTime = performance.now() / 1000;
   renderer.setAnimationLoop(() => {
-    const now = performance.now() / 1000;
-    const delta = Math.min(now - lastTime, 0.05);
-    lastTime = now;
+    const realTime = performance.now() / 1000;
+    const delta = Math.min(realTime - lastTime, 0.05);
+    lastTime = realTime;
+    if (document.hidden) return;
+    simulationTime += delta;
+    const now = simulationTime;
     let progress = 0;
     if (step) {
       progress = THREE.MathUtils.clamp((now - step.startedAt) / STEP_SECONDS, 0, 1);
@@ -172,14 +222,14 @@ function start() {
         targetAngle = DIRECTIONS[direction].angle;
         const botStart = bot.root.position.clone();
         const crateStarts = crates.map((crate) => crate.position.clone());
-        const result = movePlayer(state, direction);
+        const result = movePlayer(state, direction, now);
         if (result.moved) {
           step = { startedAt: now, botStart, crate: result.pushed, crateStart: crateStarts[result.pushed] };
           status.textContent = result.pushed === undefined
             ? ''
             : (state.crates[result.pushed].name || 'Crate') + ' moved.';
-        } else {
-          status.textContent = 'Blocked.';
+        } else if (result.interacted !== undefined) {
+          status.textContent = 'Greeting ' + state.npcs[result.interacted].name + '.';
         }
       }
     }
@@ -198,6 +248,25 @@ function start() {
     bot.claws.forEach((claw) => { claw.rotation.x = step?.crate !== undefined ? -0.42 : 0; });
     const blink = reducedMotion.matches ? 0 : Math.exp(-Math.pow(((now % 4.6) - 2.9) / 0.087, 2));
     bot.eyes.forEach((eye) => { eye.scale.y = 0.135 * (1 - blink * 0.89); });
+    updateNpcs(state, now);
+    for (const npc of state.npcs) {
+      const model = npcModels[npc.id];
+      const [x, z] = worldPosition(npc.x, npc.z);
+      model.position.set(x, 0, z);
+      if (motionActive(npc, now)) {
+        const [fromX, fromZ] = worldPosition(npc.motion.fromX, npc.motion.fromZ);
+        const blend = reducedMotion.matches ? 1 : THREE.MathUtils.smoothstep(
+          (now - npc.motion.startedAt) / npc.motion.duration, 0, 1,
+        );
+        model.position.x = THREE.MathUtils.lerp(fromX, x, blend);
+        model.position.z = THREE.MathUtils.lerp(fromZ, z, blend);
+      }
+      animateFigure(model, {
+        time: now + npc.id * 0.7, delta, moving: Boolean(motionActive(npc, now)),
+        angle: npc.angle, action: now < npc.greetingUntil ? npc.action : 'idle',
+        reducedMotion: reducedMotion.matches,
+      });
+    }
     selectedTile.position.x = bot.root.position.x;
     selectedTile.position.z = bot.root.position.z;
     renderer.render(scene, camera);
@@ -210,5 +279,6 @@ try {
   console.error(error);
   document.querySelector('#render-error').hidden = false;
   reset.disabled = true;
+  greet.disabled = true;
   directionButtons.forEach((button) => { button.disabled = true; });
 }

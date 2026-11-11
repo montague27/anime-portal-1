@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CELL_SIZE, WIDTH, HEIGHT, worldPosition } from './workshop.js';
-import { createFigure } from './figures.js';
 
 const material = (color, metalness = 0) =>
   new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness });
@@ -75,13 +74,9 @@ export function createRoom(scene, state) {
   }
 
   return state.crates.map((crate, index) => {
-    const group = crate.figure ? createFigure(crate.figure) : new THREE.Group();
+    const group = new THREE.Group();
     const [x, z] = worldPosition(crate.x, crate.z);
     group.position.set(x, 0, z);
-    if (crate.figure) {
-      scene.add(group);
-      return group;
-    }
     box(group, wood, 0.82, 0.70, 0.82, 0, 0.37, 0);
     for (const side of [-1, 1]) {
       box(group, edge, 0.91, 0.105, 0.91, 0, 0.37 + side * 0.30, 0);

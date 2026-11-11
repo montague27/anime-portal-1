@@ -16,6 +16,12 @@ const startingFigures = [
   { figure: 'aki', name: 'Aki', x: 7, z: 3 },
   { figure: 'reze', name: 'Reze', x: 8, z: 5 },
 ];
+const npcTiming = {
+  miku: { speed: 0.38, pause: 1.5, gesture: 'dance' },
+  emu: { speed: 0.29, pause: 0.7, gesture: 'cheer' },
+  aki: { speed: 0.48, pause: 2.5, gesture: 'nod' },
+  reze: { speed: 0.42, pause: 1.9, gesture: 'wave' },
+};
 const fixtures = [[1, 1], [2, 1], [3, 1], [7, 1], [8, 1], [9, 1], [1, 7], [9, 7]];
 const key = (x, z) => x + ',' + z;
 const fixedCells = new Set(fixtures.map(([x, z]) => key(x, z)));
@@ -23,10 +29,11 @@ const fixedCells = new Set(fixtures.map(([x, z]) => key(x, z)));
 export function createWorkshop() {
   return {
     player: { x: 5, z: 6 },
-    crates: [
-      ...startingCrates.map(([x, z]) => ({ x, z })),
-      ...startingFigures,
-    ].map((object, id) => ({ ...object, id })),
+    crates: startingCrates.map(([x, z], id) => ({ x, z, id })),
+    npcs: startingFigures.map((npc, id) => ({
+      ...npc, id, angle: 0, nextThink: 0.8 + id * 0.6,
+      greetingUntil: 0, nextGreeting: 0, action: 'idle', destination: null,
+    })),
   };
 }
 
@@ -34,25 +41,120 @@ export function isBlocked(x, z) {
   return x < 0 || z < 0 || x >= WIDTH || z >= HEIGHT || fixedCells.has(key(x, z));
 }
 
-export function movePlayer(state, direction) {
+export function motionActive(actor, now) {
+  return Boolean(actor.motion && now < actor.motion.startedAt + actor.motion.duration);
+}
+
+export function occupied(state, x, z, now, ignore) {
+  return [state.player, ...state.crates, ...state.npcs].some((actor) => actor !== ignore && (
+    (actor.x === x && actor.z === z) ||
+    (motionActive(actor, now) && actor.motion.fromX === x && actor.motion.fromZ === z)
+  ));
+}
+
+function beginMove(actor, x, z, now, duration) {
+  actor.motion = { fromX: actor.x, fromZ: actor.z, startedAt: now, duration };
+  actor.x = x;
+  actor.z = z;
+}
+
+export function greetNpc(state, npc, now, partner = state.player) {
+  npc.action = npcTiming[npc.figure].gesture;
+  npc.greetingUntil = now + 2.4;
+  npc.nextGreeting = now + 8;
+  npc.nextThink = now + 2.6;
+  npc.angle = Math.atan2(partner.x - npc.x, partner.z - npc.z);
+  npc.destination = null;
+  return npc;
+}
+
+export function interactNearby(state, now) {
+  const nearby = state.npcs
+    .filter((npc) => Math.abs(npc.x - state.player.x) + Math.abs(npc.z - state.player.z) <= 2)
+    .sort((a, b) => Math.hypot(a.x - state.player.x, a.z - state.player.z) -
+      Math.hypot(b.x - state.player.x, b.z - state.player.z))[0];
+  if (nearby) greetNpc(state, nearby, now);
+  return nearby;
+}
+
+export function movePlayer(state, direction, now = 0) {
   const offset = DIRECTIONS[direction];
   if (!offset) return { moved: false };
   const x = state.player.x + offset.x;
   const z = state.player.z + offset.z;
   if (isBlocked(x, z)) return { moved: false };
+  const npc = state.npcs.find((actor) => actor.x === x && actor.z === z);
+  if (npc) {
+    greetNpc(state, npc, now);
+    return { moved: false, interacted: npc.id };
+  }
   const crate = state.crates.find((item) => item.x === x && item.z === z);
   if (crate) {
     const nextX = x + offset.x;
     const nextZ = z + offset.z;
-    if (isBlocked(nextX, nextZ) || state.crates.some((item) => item.x === nextX && item.z === nextZ)) {
+    if (isBlocked(nextX, nextZ) || occupied(state, nextX, nextZ, now, crate)) {
       return { moved: false };
     }
-    crate.x = nextX;
-    crate.z = nextZ;
+    beginMove(crate, nextX, nextZ, now, 0.20);
+  } else if (occupied(state, x, z, now, state.player)) {
+    return { moved: false };
   }
-  state.player.x = x;
-  state.player.z = z;
+  beginMove(state.player, x, z, now, 0.20);
   return { moved: true, pushed: crate?.id };
+}
+
+function findNextStep(state, npc, destination, now) {
+  const queue = [{ x: npc.x, z: npc.z, first: null }];
+  const visited = new Set([key(npc.x, npc.z)]);
+  for (let index = 0; index < queue.length; index += 1) {
+    const cell = queue[index];
+    if (cell.x === destination.x && cell.z === destination.z) return cell.first;
+    for (const direction of Object.values(DIRECTIONS)) {
+      const x = cell.x + direction.x;
+      const z = cell.z + direction.z;
+      if (visited.has(key(x, z)) || isBlocked(x, z) || occupied(state, x, z, now, npc)) continue;
+      visited.add(key(x, z));
+      queue.push({ x, z, first: cell.first || { x, z, angle: direction.angle } });
+    }
+  }
+  return null;
+}
+
+export function updateNpcs(state, now, random = Math.random) {
+  for (const npc of state.npcs) {
+    if (motionActive(npc, now) || now < npc.nextThink) continue;
+    const timing = npcTiming[npc.figure];
+    npc.action = 'idle';
+    const partner = [state.player, ...state.npcs.filter((other) => other !== npc)]
+      .find((actor) => !motionActive(actor, now) &&
+        Math.abs(actor.x - npc.x) + Math.abs(actor.z - npc.z) === 1);
+    if (partner && now >= npc.nextGreeting) {
+      greetNpc(state, npc, now, partner);
+      if (partner.figure) greetNpc(state, partner, now, npc);
+      continue;
+    }
+    if (!npc.destination) {
+      const candidates = [];
+      for (let z = 0; z < HEIGHT; z += 1) {
+        for (let x = 0; x < WIDTH; x += 1) {
+          if (!isBlocked(x, z) && !occupied(state, x, z, now, npc) &&
+              Math.abs(x - npc.x) + Math.abs(z - npc.z) > 1) candidates.push({ x, z });
+        }
+      }
+      npc.destination = candidates[Math.floor(random() * candidates.length)];
+    }
+    const next = npc.destination && findNextStep(state, npc, npc.destination, now);
+    if (!next) {
+      npc.destination = null;
+      npc.nextThink = now + timing.pause;
+      continue;
+    }
+    npc.angle = next.angle;
+    beginMove(npc, next.x, next.z, now, timing.speed);
+    const arrived = npc.x === npc.destination.x && npc.z === npc.destination.z;
+    npc.nextThink = now + timing.speed + (arrived ? timing.pause : 0.06);
+    if (arrived) npc.destination = null;
+  }
 }
 
 export function worldPosition(x, z) {
