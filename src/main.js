@@ -22,7 +22,7 @@ function start() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.3;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Walk into crates to push them one grid cell.');
+  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push crates and the Miku, Emu Otori, Aki, and Reze figures one grid cell at a time.');
   viewport.append(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -175,7 +175,9 @@ function start() {
         const result = movePlayer(state, direction);
         if (result.moved) {
           step = { startedAt: now, botStart, crate: result.pushed, crateStart: crateStarts[result.pushed] };
-          status.textContent = result.pushed === undefined ? '' : 'Crate pushed.';
+          status.textContent = result.pushed === undefined
+            ? ''
+            : (state.crates[result.pushed].name || 'Crate') + ' moved.';
         } else {
           status.textContent = 'Blocked.';
         }
