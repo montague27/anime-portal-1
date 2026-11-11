@@ -1,8 +1,7 @@
 import { CHARACTERS } from './characters.js';
 
-export const WIDTH = 19;
-export const HEIGHT = 15;
-export const CELL_SIZE = 1.18;
+import { WIDTH, HEIGHT, CELL_SIZE, bulkheads, furniture, isDeckCell } from './layout.js';
+export { WIDTH, HEIGHT, CELL_SIZE, bulkheads, furniture } from './layout.js';
 
 export const DIRECTIONS = {
   up: { x: 0, z: -1, angle: Math.PI },
@@ -11,39 +10,27 @@ export const DIRECTIONS = {
   right: { x: 1, z: 0, angle: Math.PI / 2 },
 };
 
-const startingCrates = [[6, 5], [6, 4], [10, 5], [2, 7], [9, 6], [7, 6]];
+const startingCrates = [[1, 24], [2, 25], [8, 24], [9, 26]];
 const equipment = [
-  { x: 7, z: 10, kind: 'battery', name: 'Battery box' },
-  { x: 10, z: 11, kind: 'battery', name: 'Battery box' },
-  { x: 15, z: 4, kind: 'battery', name: 'Battery box' },
-  { x: 6, z: 12, kind: 'toolbox', name: 'Toolbox' },
-  { x: 12, z: 10, kind: 'toolbox', name: 'Toolbox' },
-  { x: 15, z: 12, kind: 'toolbox', name: 'Toolbox' },
+  { x: 2, z: 15, kind: 'battery', name: 'Battery box' },
+  { x: 8, z: 20, kind: 'battery', name: 'Battery box' },
+  { x: 2, z: 18, kind: 'toolbox', name: 'Toolbox' },
+  { x: 9, z: 17, kind: 'toolbox', name: 'Toolbox' },
 ];
 const startingFigures = [
-  { figure: 'miku', name: 'Miku', x: 2, z: 3 },
-  { figure: 'shino', name: CHARACTERS.shino.name, x: 4, z: 2 },
-  { figure: 'shibu', name: CHARACTERS.shibu.name, x: 7, z: 3 },
-  { figure: 'vita', name: CHARACTERS.vita.name, x: 8, z: 5 },
+  { figure: 'miku', name: 'Miku', x: 5, z: 3 },
+  { figure: 'shino', name: CHARACTERS.shino.name, x: 2, z: 9 },
+  { figure: 'shibu', name: CHARACTERS.shibu.name, x: 8, z: 8 },
+  { figure: 'vita', name: CHARACTERS.vita.name, x: 5, z: 20 },
 ];
 // Bulkheads and furniture share one grid map with the rendered aircraft.
-export const bulkheads = [
-  ...Array.from({ length: WIDTH }, (_, x) => [x, 3]).filter(([x]) => ![2, 7, 8].includes(x)),
-  ...Array.from({ length: HEIGHT - 4 }, (_, i) => i + 4).filter((z) => ![6, 7].includes(z)).map((z) => [4, z]),
-];
-export const furniture = [
-  ...[1, 2, 3, 5, 6, 8, 9, 11, 12, 13].map((x) => [x, 0]),
-  [5, 1], [9, 1],
-  ...[5, 8, 11].flatMap((z) => [[1, z], [2, z]]),
-  ...[5, 7, 9].flatMap((z) => [[WIDTH - 3, z], [WIDTH - 2, z]]),
-];
 const fixtures = [...bulkheads, ...furniture];
 const key = (x, z) => x + ',' + z;
 const fixedCells = new Set(fixtures.map(([x, z]) => key(x, z)));
 
 export function createWorkshop() {
   return {
-    player: { x: 5, z: 6 },
+    player: { x: 5, z: 15 },
     crates: [...startingCrates.map(([x, z]) => ({ x, z, kind: 'cargo', name: 'Cargo crate' })), ...equipment]
       .map((item, id) => ({ ...item, id })),
     npcs: startingFigures.map((npc, id) => ({
@@ -54,7 +41,7 @@ export function createWorkshop() {
 }
 
 export function isBlocked(x, z) {
-  return x < 0 || z < 0 || x >= WIDTH || z >= HEIGHT || fixedCells.has(key(x, z));
+  return !isDeckCell(x, z) || fixedCells.has(key(x, z));
 }
 
 export function motionActive(actor, now) {
@@ -84,11 +71,28 @@ export function greetNpc(state, npc, now, partner = state.player) {
   return npc;
 }
 
+export function nearbyCharacter(state, now) {
+  // Two reachable tiles: do not show crew through bulkheads or furniture.
+  const reached = new Map([[key(state.player.x, state.player.z), 0]]);
+  const queue = [{ ...state.player, distance: 0 }];
+  for (const cell of queue) {
+    if (cell.distance === 2) continue;
+    for (const direction of Object.values(DIRECTIONS)) {
+      const x = cell.x + direction.x, z = cell.z + direction.z;
+      if (isBlocked(x, z) || reached.has(key(x, z)) || state.crates.some((crate) => crate.x === x && crate.z === z)) continue;
+      reached.set(key(x, z), cell.distance + 1);
+      queue.push({ x, z, distance: cell.distance + 1 });
+    }
+  }
+  return state.npcs.map((npc) => ({ npc, distance: Math.min(
+    reached.get(key(npc.x, npc.z)) ?? Infinity,
+    motionActive(npc, now) ? reached.get(key(npc.motion.fromX, npc.motion.fromZ)) ?? Infinity : Infinity,
+  ) })).filter(({ distance }) => distance <= 2)
+    .sort((a, b) => a.distance - b.distance || a.npc.id - b.npc.id)[0]?.npc;
+}
+
 export function interactNearby(state, now) {
-  const nearby = state.npcs
-    .filter((npc) => Math.abs(npc.x - state.player.x) + Math.abs(npc.z - state.player.z) <= 2)
-    .sort((a, b) => Math.hypot(a.x - state.player.x, a.z - state.player.z) -
-      Math.hypot(b.x - state.player.x, b.z - state.player.z))[0];
+  const nearby = nearbyCharacter(state, now);
   if (nearby) greetNpc(state, nearby, now);
   return nearby;
 }

@@ -7,14 +7,13 @@ button:disabled { opacity: .4; cursor: default; }
 #game { position: relative; width: 100%; height: 100svh; min-height: 260px; }
 #viewport, canvas { width: 100%; height: 100%; display: block; }
 canvas { touch-action: none; }
-.reset, .dpad button {
+.dpad button {
   display: grid; place-items: center; width: 44px; height: 44px;
   border: 1px solid #c8dcc335; border-radius: 12px;
   background: #173337d9; box-shadow: 0 3px 12px #081a2026;
   backdrop-filter: blur(10px);
 }
-.reset { position: absolute; right: 24px; top: 24px; font-size: 27px; }
-.reset:hover, .dpad button:hover, .dpad button.active { background: #486459; border-color: #d4d4a6; }
+.dpad button:hover, .dpad button.active { background: #486459; border-color: #d4d4a6; }
 .player-hud {
   position: absolute; left: max(26px, env(safe-area-inset-left)); bottom: max(26px, env(safe-area-inset-bottom));
   display: flex; align-items: center; gap: 17px; color: #eaf3f3;
@@ -27,16 +26,19 @@ canvas { touch-action: none; }
   box-shadow: 0 0 0 5px #193d50e8, inset 0 0 0 6px #ffffff0b;
 }
 .avatar canvas { display: block; width: 100%; height: 100%; border-radius: 50%; }
-.player-panel { width: 222px; padding: 16px 18px 17px; border-radius: 15px; border: 1px solid #e0f6ff45; background: #173b4fef; backdrop-filter: blur(16px); }
-.player-name { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; font-size: 14px; font-weight: 750; letter-spacing: .14em; color: #ffe4a0; }
-.player-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; }
-.stat { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.stat + .stat { border-left: 1px solid #d8f2ff18; }
-.stat dt { height: 25px; color: #eec673; }
-.stat.intelligence dt { color: #83d9d4; }
-.stat.resources dt { color: #a5b9ee; }
+#mission-feedback { position: absolute; right: 24px; bottom: 24px; max-width: 280px; margin: 0; padding: 12px 16px; border-radius: 10px; border: 1px solid #e0f6ff45; background: #173b4fef; color: #eaf3f3; font-size: 12px; pointer-events: none; }
+.player-stats { display: grid; gap: 16px; margin: 0; filter: drop-shadow(0 2px 3px #173b4f70); }
+.stat { display: flex; align-items: center; gap: 10px; }
+.stat:first-child, .stat:last-child { transform: translateX(-9px); }
+.stat dt { height: 25px; color: #94641c; }
+.stat.intelligence dt { color: #28777d; }
+.stat.resources dt { color: #5c609d; }
 .stat svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.stat dd { margin: 0; font-size: 21px; line-height: 1; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat dd { margin: 0; min-width: 28px; color: #173b4f; font-size: 21px; line-height: 1; font-weight: 750; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px #ffffffa0; }
+#encounter { position: absolute; top: max(24px, env(safe-area-inset-top)); right: max(24px, env(safe-area-inset-right)); width: 190px; pointer-events: none; filter: drop-shadow(0 5px 16px #23435735); }
+.encounter-portrait { width: 190px; height: 210px; overflow: hidden; border: 2px solid #e3f8ffb0; border-radius: 22px; background: radial-gradient(ellipse at 50% 35%, #6d9dacdd, #22485bd9); }
+.encounter-portrait canvas { width: 100%; height: 100%; }
+#encounter-name { margin: 10px 0 0; text-align: center; color: #173b4f; text-shadow: 0 1px 3px #ffffffb0; font-size: 16px; font-weight: 700; }
 .dpad { display: none; position: absolute; right: 18px; bottom: 18px; grid-template-columns: repeat(3,44px); grid-template-rows: repeat(2,44px); gap: 5px; }
 .dpad button { font-size: 24px; user-select: none; -webkit-user-select: none; }
 [data-direction="up"] { grid-column: 2; }
@@ -50,15 +52,17 @@ canvas { touch-action: none; }
   .dpad { display: grid; }
   .player-hud { left: 17px; bottom: 18px; gap: 11px; }
   .avatar { width: 88px; height: 88px; border-width: 3px; }
-  .player-panel { width: 188px; padding: 12px; }
-  .player-name { margin-bottom: 10px; font-size: 12px; }
-  .stat dt { font-size: 10px; }
+  .stat { gap: 8px; }
+  .stat svg { width: 21px; height: 21px; }
+  .stat dt { height: 21px; }
+  .stat dd { font-size: 18px; }
   .player-stats { gap: 8px; }
-  .reset { right: 18px; top: 18px; }
+  #encounter { top: 18px; right: 18px; width: 130px; }
+  .encounter-portrait { width: 130px; height: 145px; border-radius: 16px; }
+  #encounter-name { font-size: 13px; margin-top: 7px; }
 }
 @media (max-width: 480px) {
   .player-hud { gap: 9px; left: 14px; bottom: 14px; }
   .avatar { width: 76px; height: 76px; }
-  .player-panel { width: 172px; }
   .dpad { bottom: 182px; right: 14px; }
 }

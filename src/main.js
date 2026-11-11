@@ -1,17 +1,16 @@
 import * as THREE from 'three';
 import { createToasty } from './toasty.js';
-import { createPortrait } from './portrait.js';
+import { createPortrait, createEncounterPortrait } from './portrait.js';
 import { createAircraft, createSky } from './aircraft.js';
 import { loadAuthoredFigure, animateAuthoredFigure } from './character-assets.js';
 import {
   createWorkshop, movePlayer, worldPosition, DIRECTIONS, WIDTH, HEIGHT, CELL_SIZE,
-  updateNpcs, greetNpc, motionActive,
+  updateNpcs, greetNpc, motionActive, nearbyCharacter,
 } from './workshop.js';
 import './style.css';
 
 const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
-const reset = document.querySelector('#reset');
 const loading = document.querySelector('#loading');
 const directionButtons = [...document.querySelectorAll('[data-direction]')];
 const keyDirections = {
@@ -29,11 +28,14 @@ function start() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push equipment or click a character to greet them. Scroll to zoom.');
+  renderer.domElement.setAttribute('aria-label', 'Explore the carrier with WASD or arrow keys. Click crew to greet them, or click the drone bay, radar, charging banks, payload hatch, and cargo conveyor to operate them. Scroll to zoom.');
   viewport.append(renderer.domElement);
   const renderPortrait = createPortrait(document.querySelector('#toasty-portrait'));
 
   const scene = new THREE.Scene();
+  const renderEncounter = createEncounterPortrait(document.querySelector('#encounter-portrait'), scene);
+  const encounter = document.querySelector('#encounter');
+  const encounterName = document.querySelector('#encounter-name');
   scene.background = new THREE.Color(0xb9e4fa);
   const camera = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 80);
   camera.zoom = DEFAULT_ZOOM;
@@ -83,9 +85,11 @@ function start() {
     loading.hidden = charactersReady;
     if (!charactersReady) {
       failures.forEach((result) => console.error('Character loading failed:', result.reason));
-      loading.textContent = 'A character could not load. Press reset to retry.';
+      loading.textContent = 'A character could not load. Click here to retry.';
+      loading.style.cursor = 'pointer';
     }
   };
+  loading.addEventListener('click', () => { if (!charactersReady) void loadCharacters(); });
   const bot = createToasty();
   bot.root.scale.setScalar(0.29);
   scene.add(bot.root);
@@ -104,10 +108,11 @@ function start() {
     if (!width || !height) return;
     camera.updateMatrixWorld();
     const halfW = WIDTH * CELL_SIZE / 2, halfD = HEIGHT * CELL_SIZE / 2;
-    const outline = [[0, 1.6, -halfD - 7.4], [0, 2, halfD + 2.7]];
+    const outline = [[0, 1.8, -halfD - 2.2], [0, 2.5, halfD + 4.5]];
     for (const side of [-1, 1]) {
-      for (const z of [-halfD, halfD]) outline.push([side * (halfW + 0.6), 0, z]);
-      for (const z of [-2.4, 4.4]) outline.push([side * (halfW + 5.4), -0.7, z]);
+      for (const z of [-halfD + 4, halfD]) outline.push([side * (halfW + 0.6), 0, z]);
+      for (const z of [-1.2, 6]) outline.push([side * (halfW + 10), -0.7, z]);
+      outline.push([side * 8.7, 0, halfD + 4.2]);
     }
     const projected = outline.map((point) => new THREE.Vector3(...point).applyMatrix4(camera.matrixWorldInverse));
     const minX = Math.min(...projected.map((point) => point.x));
@@ -167,16 +172,44 @@ function start() {
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
-  renderer.domElement.addEventListener('pointerup', (event) => {
-    if (!charactersReady) return;
+  const stationLabels = {
+    drone: 'Launch reconnaissance drone', payload: 'Release payload', radar: 'Scan with radar',
+    recharge: 'Recharge mechanical power', logistics: 'Transfer cargo',
+  };
+  let feedbackTimer;
+  const selectObject = (event) => {
     const bounds = renderer.domElement.getBoundingClientRect();
     pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1,
       -(event.clientY - bounds.top) / bounds.height * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(npcModels, true)[0];
-    if (!hit) return;
+    const hit = raycaster.intersectObjects([...npcModels, ...aircraft.stations], true)[0];
+    if (!hit) return null;
     let model = hit.object;
-    while (model.userData.npcId === undefined && model.parent) model = model.parent;
+    while (model.userData.npcId === undefined && !model.userData.station && model.parent) model = model.parent;
+    return model;
+  };
+  renderer.domElement.addEventListener('pointermove', (event) => {
+    const model = selectObject(event);
+    renderer.domElement.style.cursor = model ? 'pointer' : 'default';
+    renderer.domElement.title = model?.userData.station ? stationLabels[model.userData.station] : '';
+  });
+  renderer.domElement.addEventListener('pointerup', (event) => {
+    if (!charactersReady) return;
+    const model = selectObject(event);
+    if (!model) return;
+    const station = model.userData.station;
+    if (station) {
+      if (aircraft.interact(station)) {
+        if (station === 'recharge') document.querySelector('.power dd').textContent = '100';
+        const feedback = document.querySelector('#mission-feedback');
+        feedback.textContent = { drone: 'Drone deployed — returning to bay', payload: 'Payload released',
+          radar: 'Radar scanning', recharge: 'Mechanical power restored', logistics: 'Cargo transfer in progress' }[station];
+        feedback.hidden = false;
+        clearTimeout(feedbackTimer);
+        feedbackTimer = setTimeout(() => { feedback.hidden = true; }, 3500);
+      }
+      return;
+    }
     const npc = state.npcs[model.userData.npcId];
     if (npc) {
       greetNpc(state, npc, simulationTime);
@@ -189,20 +222,6 @@ function start() {
     queuedDirection = '';
     directionButtons.forEach((button) => button.classList.remove('active'));
   };
-  reset.addEventListener('click', () => {
-    releaseInputs();
-    state = createWorkshop();
-    simulationTime = 0;
-    camera.zoom = DEFAULT_ZOOM;
-    camera.position.set(10, 14, 15);
-    camera.updateProjectionMatrix();
-    step = null;
-    targetAngle = 0;
-    bot.root.rotation.y = 0;
-    syncPositions();
-    status.textContent = 'Aircraft reset.';
-    if (!charactersReady) void loadCharacters();
-  });
   window.addEventListener('keydown', (event) => {
     if (!charactersReady) return;
     if (event.target.closest('input, textarea, select, [contenteditable="true"]') ||
@@ -324,6 +343,12 @@ function start() {
     selectedTile.position.x = bot.root.position.x;
     selectedTile.position.z = bot.root.position.z;
     renderer.render(scene, camera);
+    const nearby = nearbyCharacter(state, now);
+    encounter.hidden = !nearby;
+    if (nearby) {
+      if (encounterName.textContent !== nearby.name) encounterName.textContent = nearby.name;
+      renderEncounter(npcModels[nearby.id]);
+    }
   });
   void loadCharacters();
 }
@@ -334,6 +359,5 @@ try {
   console.error(error);
   document.querySelector('#render-error').hidden = false;
   loading.hidden = true;
-  reset.disabled = true;
   directionButtons.forEach((button) => { button.disabled = true; });
 }

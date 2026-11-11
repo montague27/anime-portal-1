@@ -1,224 +1,338 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { CELL_SIZE, WIDTH, HEIGHT, worldPosition, bulkheads } from './workshop.js';
+import { WIDTH, HEIGHT, CELL_SIZE, worldPosition } from './workshop.js';
+import { bulkheads, fittings, isDeckCell } from './layout.js';
 
-const material = (color, metalness = 0) => new THREE.MeshStandardMaterial({ color, roughness: 0.65, metalness });
-function box(parent, surface, w, h, d, x, y, z, radius = 0.04) {
-  const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(radius, w / 3, h / 3, d / 3)), surface);
+const mat = (color, metalness = 0.15) => new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.57 });
+const palette = {
+  hull: mat(0xe2eaf0, 0.4), trim: mat(0x2b4055, 0.5), teal: mat(0x4a9fa9),
+  cream: mat(0xe5d9bc), gold: mat(0xe8b85f), navy: mat(0x465e81),
+  white: mat(0xf1f4f3), dark: mat(0x112b3c), red: mat(0xd27659),
+  glow: new THREE.MeshBasicMaterial({ color: 0x91eddd }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x8bd4e9, transparent: true, opacity: 0.29, roughness: 0.15, side: THREE.DoubleSide }),
+};
+function box(parent, surface, w, h, d, x = 0, y = h / 2, z = 0) {
+  const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(0.055, w / 3, h / 3, d / 3)), surface);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   parent.add(mesh);
   return mesh;
 }
+function cylinder(parent, surface, radius, height, x, y, z) {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 24), surface);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+function strut(parent, surface, a, b, thickness = 0.10) {
+  const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b);
+  const mesh = box(parent, surface, thickness, thickness, start.distanceTo(end));
+  mesh.position.copy(start.add(end).multiplyScalar(0.5));
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...b).sub(new THREE.Vector3(...a)).normalize());
+  return mesh;
+}
+function deckShape(parent, points, surface, depth, y) {
+  const shape = new THREE.Shape();
+  points.forEach(([x, z], i) => i ? shape.lineTo(x, z) : shape.moveTo(x, z));
+  shape.closePath();
+  const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false }), surface);
+  mesh.rotation.x = Math.PI / 2;
+  mesh.position.y = y;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+function screen(parent, x, z, w = 0.8) {
+  const { trim, dark, glow, gold } = palette;
+  box(parent, trim, w + 0.12, 0.75, 0.55, x, 0.38, z);
+  const display = box(parent, dark, w, 0.50, 0.07, x, 1.01, z - 0.12);
+  display.rotation.x = -0.25;
+  for (let i = 0; i < 3; i++) box(parent, i === 2 ? gold : glow, w * (0.70 - i * 0.12), 0.022, 0.025, x - 0.05, 0.88 + i * 0.11, z - 0.06);
+}
+function drone(parent) {
+  const { trim, white, glow } = palette;
+  const group = new THREE.Group();
+  box(group, white, 0.6, 0.24, 0.8, 0, 0.08);
+  box(group, glow, 0.25, 0.08, 0.08, 0, 0.12, -0.44);
+  for (const x of [-0.5, 0.5]) for (const z of [-0.5, 0.5]) {
+    strut(group, trim, [0, 0, 0], [x, 0, z], 0.075);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.045, 8, 20), trim);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(x, 0.06, z);
+    group.add(ring);
+    box(group, white, 0.44, 0.025, 0.06, x, 0.06, z);
+  }
+  parent.add(group);
+  return group;
+}
 
 export function createAircraft(scene, state) {
-  const hull = material(0xe1eaf0, 0.35), trim = material(0x30495f, 0.4);
-  const teal = material(0x49a9b5), cream = material(0xf3e9d7), gold = material(0xeebc68);
-  const navy = material(0x354e70), white = material(0xf5f7fa), dark = material(0x162f46);
-  const glass = new THREE.MeshPhysicalMaterial({ color: 0x7ccfe9, transparent: true, opacity: 0.42, roughness: 0.15, side: THREE.DoubleSide });
-  const glow = new THREE.MeshBasicMaterial({ color: 0x8af4ee });
+  const { hull, trim, teal, cream, gold, navy, white, dark, red, glow, glass } = palette;
   const ship = new THREE.Group();
-  const propellers = [];
   scene.add(ship);
   const halfW = WIDTH * CELL_SIZE / 2, halfD = HEIGHT * CELL_SIZE / 2;
-
-  // A broad winged fuselage underneath the roofless, playable cabin.
-  box(ship, trim, halfW * 2 + 0.55, 0.65, halfD * 2 + 0.6, 0, -0.49, 0, 0.22);
-  box(ship, hull, halfW * 2 + 0.7, 0.23, halfD * 2 + 0.75, 0, -0.17, 0, 0.09);
-  const noseTip = -halfD - 7;
-  const noseOutline = new THREE.Shape();
-  noseOutline.moveTo(-halfW - 0.35, -halfD - 0.3);
-  noseOutline.lineTo(0, noseTip);
-  noseOutline.lineTo(halfW + 0.35, -halfD - 0.3);
-  noseOutline.closePath();
-  const nose = new THREE.Mesh(new THREE.ExtrudeGeometry(noseOutline, {
-    depth: 0.65, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.08, bevelSegments: 2, steps: 1,
-  }), hull);
-  nose.rotation.x = Math.PI / 2;
-  nose.position.y = -0.1;
-  nose.castShadow = true;
-  nose.receiveShadow = true;
-  ship.add(nose);
-  // Two sloping windshield edges make the forward silhouette unmistakably ^ shaped.
+  const noseZ = -halfD - 1.7;
+  const outline = [[-1.4, noseZ], [1.4, noseZ], [halfW + 0.3, -halfD + 4.1],
+    [halfW + 0.3, halfD - 1], [3.1, halfD + 3.6], [-3.1, halfD + 3.6],
+    [-halfW - 0.3, halfD - 1], [-halfW - 0.3, -halfD + 4.1]];
+  deckShape(ship, outline, trim, 1.15, -0.12);
+  deckShape(ship, outline.map(([x, z]) => [x * 1.015, z]), hull, 0.22, -0.015);
+  // A deep fuselage keel and swept wings establish a long aircraft silhouette.
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), hull);
+  belly.scale.set(halfW * 0.94, 1.25, halfD + 1.5);
+  belly.position.y = -2.0;
+  ship.add(belly);
+  const rotors = [];
   for (const side of [-1, 1]) {
-    const start = new THREE.Vector3(side * (halfW + 0.25), 0, -halfD - 0.08);
-    const end = new THREE.Vector3(0, 0, noseTip);
-    const distance = start.distanceTo(end);
-    const midpoint = start.clone().add(end).multiplyScalar(0.5);
-    const yaw = Math.atan2(end.x - start.x, end.z - start.z);
-    for (const [surface, y, thickness, height] of [[teal, 0.12, 0.24, 0.18], [glass, 0.85, 0.05, 1.25], [trim, 1.52, 0.10, 0.08]]) {
-      const rail = box(ship, surface, thickness, height, distance, midpoint.x, y, midpoint.z);
-      rail.rotation.y = yaw;
+    deckShape(ship, [[side * halfW, -3.2], [side * (halfW + 9.5), 2.3],
+      [side * (halfW + 9.0), 5.6], [side * halfW, 2.7]], hull, 0.25, -0.65);
+    strut(ship, teal, [side * (halfW + 8.7), -0.4, 2.4], [side * (halfW + 8.4), -0.4, 5.4], 0.22);
+    strut(ship, gold, [side * (halfW + 2), -0.38, 0], [side * (halfW + 7.7), -0.38, 3.1], 0.12);
+    for (const offset of [3.1, 6.8]) {
+      const engineX = side * (halfW + offset), engineZ = offset * 0.43;
+      const nacelle = cylinder(ship, trim, 0.63, 3.4, engineX, -0.65, engineZ);
+      nacelle.rotation.x = Math.PI / 2;
+      const rotor = new THREE.Group();
+      rotor.position.set(engineX, -0.65, engineZ - 1.85);
+      for (let i = 0; i < 4; i++) {
+        const blade = new THREE.Group();
+        blade.rotation.z = i * Math.PI / 2;
+        box(blade, trim, 0.20, 1.65, 0.09, 0, 0.94);
+        box(blade, gold, 0.21, 0.23, 0.10, 0, 1.65);
+        rotor.add(blade);
+      }
+      const hub = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 12), hull);
+      rotor.add(hub);
+      ship.add(rotor);
+      rotors.push(rotor);
     }
-    for (let i = 0; i <= 5; i++) {
-      const post = start.clone().lerp(end, i / 5);
-      box(ship, trim, 0.08, 1.45, 0.08, post.x, 0.78, post.z);
-    }
-    const stripe = box(ship, gold, 0.12, 0.02, distance * 0.80, midpoint.x * 0.82, -0.005, midpoint.z - 0.2);
-    stripe.rotation.y = yaw;
+    deckShape(ship, [[side * 1.8, halfD - 1], [side * 8.5, halfD + 2.3],
+      [side * 8, halfD + 4], [side * 2, halfD + 2.2]], hull, 0.2, 0.05);
+    const fin = box(ship, teal, 0.18, 2.5, 2.5, side * 3.0, 1.0, halfD + 1.8);
+    fin.rotation.x = -0.25;
+    box(ship, gold, 0.20, 0.12, 1.6, side * 3.0, 2.0, halfD + 1.8);
   }
-  // Forward avionics fairing sits beyond the main cabin's console bank.
-  box(ship, trim, 2.0, 0.25, 3.8, 0, 0.05, -halfD - 2.2, 0.10);
-  box(ship, teal, 1.5, 0.08, 2.7, 0, 0.21, -halfD - 2.2);
-  for (let i = 0; i < 6; i++) box(ship, glow, 0.75, 0.025, 0.07, 0, 0.26, -halfD - 1.1 - i * 0.38);
-  for (const side of [-1, 1]) {
-    const wing = box(ship, hull, 5.7, 0.24, 4.5, side * (halfW + 2.2), -0.75, 1.3, 0.09);
-    wing.rotation.y = side * -0.23;
-    box(ship, teal, 0.28, 0.15, 3.1, side * (halfW + 4.7), -0.58, 1.7);
-    box(ship, gold, 2.5, 0.04, 0.25, side * (halfW + 2.3), -0.59, 2.2);
-    const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.62, 3.7, 32), trim);
-    engine.rotation.x = Math.PI / 2;
-    engine.position.set(side * (halfW + 2.1), -0.35, 0.8);
-    ship.add(engine);
-    for (const z of [-1.08, 2.68]) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.59, 0.11, 12, 32), hull);
-      ring.position.set(engine.position.x, -0.35, z);
-      ship.add(ring);
-      const core = new THREE.Mesh(new THREE.CircleGeometry(0.48, 24), z < 0 ? dark : glow);
-      core.position.copy(ring.position);
-      if (z < 0) core.rotation.y = Math.PI;
-      ship.add(core);
-    }
-    const rotor = new THREE.Group();
-    rotor.position.set(engine.position.x, -0.35, -1.34);
-    for (let bladeIndex = 0; bladeIndex < 3; bladeIndex++) {
-      const blade = new THREE.Group();
-      blade.rotation.z = bladeIndex * Math.PI * 2 / 3;
-      box(blade, trim, 0.24, 2.05, 0.10, 0, 1.02, 0, 0.07);
-      box(blade, gold, 0.25, 0.30, 0.11, 0, 1.89, 0, 0.04);
-      rotor.add(blade);
-    }
-    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.29, 20, 12), hull);
-    hub.scale.z = 1.5;
-    rotor.add(hub);
-    ship.add(rotor);
-    propellers.push(rotor);
-    const tail = box(ship, hull, 4.2, 0.18, 1.7, side * 2.8, -0.2, halfD + 1.1);
-    tail.rotation.y = side * -0.18;
-  }
-  box(ship, trim, 1.4, 0.6, 3.0, 0, -0.3, halfD + 0.8);
-  const fin = box(ship, teal, 0.18, 2.2, 2.1, 0, 0.5, halfD + 1.3);
-  fin.rotation.x = -0.3;
 
-  const tiles = new THREE.InstancedMesh(new RoundedBoxGeometry(CELL_SIZE - 0.025, 0.10, CELL_SIZE - 0.025, 1, 0.01), white, WIDTH * HEIGHT);
+  const floorGeometry = new RoundedBoxGeometry(CELL_SIZE - 0.025, 0.1, CELL_SIZE - 0.025, 1, 0.01);
+  const count = Array.from({ length: WIDTH * HEIGHT }, (_, i) => isDeckCell(i % WIDTH, Math.floor(i / WIDTH))).filter(Boolean).length;
+  const tiles = new THREE.InstancedMesh(floorGeometry, white, count);
   const matrix = new THREE.Matrix4(), color = new THREE.Color();
+  let tileIndex = 0;
   for (let z = 0; z < HEIGHT; z++) for (let x = 0; x < WIDTH; x++) {
-    const [wx, wz] = worldPosition(x, z), i = z * WIDTH + x;
-    tiles.setMatrixAt(i, matrix.makeTranslation(wx, -0.05, wz));
-    const shades = z <= 2 ? [0x6e9fae, 0x76a6b4] : x < 4 ? [0xdacbb7, 0xe2d3bf] : [0xcbd6dd, 0xd4dee4];
-    tiles.setColorAt(i, color.setHex(shades[(x + z) % 2]));
+    if (!isDeckCell(x, z)) continue;
+    const [wx, wz] = worldPosition(x, z);
+    tiles.setMatrixAt(tileIndex, matrix.makeTranslation(wx, -0.05, wz));
+    const shade = z < 5 ? 0x8faebd : x >= 4 && x <= 6 ? 0xcbd8df : z < 13 ? 0xe3d7c4 : z < 21 ? 0xa6bdba : 0xb4bac4;
+    tiles.setColorAt(tileIndex++, color.setHex(shade).multiplyScalar((x + z) % 2 ? 0.98 : 1.02));
   }
   tiles.receiveShadow = true;
   ship.add(tiles);
-
-  // Glazed back walls and low cutaway edges preserve the existing isometric view.
-  for (const side of [-1, 1]) {
-    box(ship, hull, 0.20, 0.55, halfD * 2, side * (halfW + 0.1), 0.24, 0);
-    box(ship, teal, 0.23, 0.08, halfD * 2, side * (halfW + 0.1), 0.55, 0);
-  }
-  for (let z = 1; z < HEIGHT; z += 2) {
-    const [, wz] = worldPosition(0, z);
-    box(ship, glass, 0.04, 0.75, 1.7, -halfW - 0.1, 1.0, wz);
-    box(ship, trim, 0.09, 1.25, 0.09, -halfW - 0.1, 0.8, wz - 0.9);
-  }
+  // Segmented, roofless cabins: low walls expose furniture from the fixed camera.
   for (const [x, z] of bulkheads) {
     const [wx, wz] = worldPosition(x, z);
-    const horizontal = z === 3;
-    box(ship, hull, horizontal ? CELL_SIZE : 0.14, 0.75, horizontal ? 0.14 : CELL_SIZE, wx, 0.37, wz);
-    box(ship, teal, horizontal ? CELL_SIZE : 0.17, 0.06, horizontal ? 0.17 : CELL_SIZE, wx, 0.77, wz);
+    const horizontal = [5, 13, 21].includes(z) || z === 10 && x > 7;
+    box(ship, hull, horizontal ? CELL_SIZE : 0.15, 0.95, horizontal ? 0.15 : CELL_SIZE, wx, 0.47, wz);
+    box(ship, teal, horizontal ? CELL_SIZE : 0.18, 0.06, horizontal ? 0.18 : CELL_SIZE, wx, 0.97, wz);
   }
-  for (const [x, z] of [[2, 3], [7, 3], [8, 3], [4, 6], [4, 7]]) {
-    const [wx, wz] = worldPosition(x, z);
-    box(ship, glow, z === 3 ? 1.0 : 0.13, 0.015, z === 3 ? 0.13 : 1.0, wx, 0.008, wz);
+  for (const side of [-1, 1]) {
+    box(ship, hull, 0.18, 0.55, HEIGHT * CELL_SIZE - 5.1, side * (halfW + 0.12), 0.25, 2.1);
+    box(ship, teal, 0.21, 0.07, HEIGHT * CELL_SIZE - 5.1, side * (halfW + 0.12), 0.56, 2.1);
+    for (let z = 5; z < HEIGHT - 1; z += 3) {
+      const [, wz] = worldPosition(0, z);
+      box(ship, glass, 0.05, 0.75, 1.9, side * (halfW + 0.12), 1.02, wz);
+    }
+    const start = [side * (halfW + 0.2), 0.9, -halfD + 4.1], end = [side * 1.4, 0.9, noseZ];
+    const length = new THREE.Vector3(...start).distanceTo(new THREE.Vector3(...end));
+    const windshield = box(ship, glass, 0.06, 1.5, length);
+    windshield.position.copy(new THREE.Vector3(...start).add(new THREE.Vector3(...end)).multiplyScalar(0.5));
+    windshield.rotation.y = Math.atan2(end[0] - start[0], end[2] - start[2]);
+    strut(ship, trim, [start[0], 1.7, start[2]], [end[0], 1.7, end[2]], 0.09);
+    for (let i = 0; i <= 4; i++) {
+      const point = new THREE.Vector3(...start).lerp(new THREE.Vector3(...end), i / 4);
+      box(ship, trim, 0.07, 1.65, 0.07, point.x, 0.85, point.z);
+    }
   }
-
-  // Flight consoles, screens, and pilot seats.
-  for (const x of [1, 2, 3, 5, 6, 8, 9, 11, 12, 13]) {
-    const [wx, wz] = worldPosition(x, 0);
-    box(ship, trim, 1.05, 0.68, 0.8, wx, 0.34, wz);
-    const screen = box(ship, dark, 0.88, 0.48, 0.07, wx, 0.94, wz - 0.13);
-    screen.rotation.x = -0.2;
-    for (let i = 0; i < 3; i++) box(ship, i === 2 ? gold : glow, 0.45 - i * 0.09, 0.025, 0.025, wx - 0.1, 0.84 + i * 0.11, wz - 0.07);
-    box(ship, teal, 0.94, 0.055, 0.30, wx, 0.70, wz + 0.28);
-    for (let i = 0; i < 4; i++) box(ship, i % 2 ? gold : white, 0.07, 0.025, 0.07, wx - 0.3 + i * 0.18, 0.74, wz + 0.28);
+  box(ship, glass, 2.8, 1.5, 0.06, 0, 0.9, noseZ);
+  // Corridor guide lights and doorway thresholds.
+  for (let z = 5; z < HEIGHT; z++) {
+    const [, wz] = worldPosition(5, z);
+    for (const x of [-1.65, 1.65]) box(ship, glow, 0.035, 0.012, 0.7, x, 0.012, wz);
   }
-  for (const x of [5, 9]) {
-    const [wx, wz] = worldPosition(x, 1);
-    box(ship, trim, 0.12, 0.45, 0.12, wx, 0.23, wz);
-    box(ship, navy, 0.64, 0.18, 0.66, wx, 0.53, wz);
-    box(ship, navy, 0.65, 0.68, 0.16, wx, 0.86, wz + 0.30);
+  const stations = [], animated = {};
+  for (const fitting of fittings) {
+    const { kind, x, z, w = 1, d = 1, station } = fitting;
+    const group = new THREE.Group();
+    group.name = kind;
+    const [wx, wz] = worldPosition(x + (w - 1) / 2, z + (d - 1) / 2);
+    group.position.set(wx, 0, wz);
+    ship.add(group);
+    const fw = w * CELL_SIZE - 0.18, fd = d * CELL_SIZE - 0.18;
+    if (station) { group.userData.station = station; stations.push(group); animated[station] = { root: group, active: 0 }; }
+    if (kind === 'console') {
+      if (w > 1) for (let i = 0; i < w; i++) screen(group, (i - (w - 1) / 2) * CELL_SIZE, 0);
+      else for (let i = 0; i < d; i++) screen(group, 0, (i - (d - 1) / 2) * CELL_SIZE);
+    } else if (kind === 'chair') {
+      cylinder(group, trim, 0.25, 0.42, 0, 0.21, 0);
+      box(group, navy, 0.65, 0.20, 0.65, 0, 0.53);
+      box(group, navy, 0.66, 0.65, 0.14, 0, 0.85, 0.29);
+    } else if (kind === 'bed' || kind === 'medical') {
+      box(group, trim, fw, 0.35, fd, 0, 0.18);
+      box(group, white, fw - 0.08, 0.2, fd - 0.06, 0, 0.45);
+      box(group, kind === 'medical' ? teal : navy, fw * 0.85, 0.08, fd * 0.65, 0, 0.59, fd * 0.12);
+      box(group, cream, fw * 0.80, 0.16, fd * 0.23, 0, 0.62, -fd * 0.32);
+      if (kind === 'medical') { box(group, red, 0.32, 0.04, 0.10, 0, 0.66); box(group, red, 0.10, 0.04, 0.32, 0, 0.66); }
+    } else if (kind === 'locker' || kind === 'lifeSupport') {
+      box(group, trim, fw, 1.6, fd, 0, 0.8);
+      box(group, kind === 'locker' ? cream : teal, fw - 0.12, 1.4, 0.05, 0, 0.8, fd / 2);
+      for (let i = 0; i < 4; i++) box(group, dark, fw * 0.5, 0.035, 0.03, 0, 1.1 + i * 0.09, fd / 2 + 0.03);
+      box(group, gold, 0.06, 0.20, 0.04, fw * 0.3, 0.7, fd / 2 + 0.03);
+    } else if (kind === 'galley' || kind === 'workbench') {
+      box(group, cream, fw, 0.8, fd, 0, 0.4);
+      box(group, trim, fw + 0.04, 0.08, fd, 0, 0.84);
+      if (kind === 'galley') {
+        box(group, dark, 0.65, 0.04, 0.56, -fw * 0.30, 0.9);
+        for (const dx of [-0.15, 0.15]) cylinder(group, gold, 0.10, 0.025, -fw * 0.30 + dx, 0.94, 0);
+        box(group, teal, 0.7, 0.03, 0.5, fw * 0.15, 0.91);
+        strut(group, hull, [fw * 0.15, 0.9, -0.2], [fw * 0.15, 1.25, -0.2], 0.06);
+        box(group, hull, 0.6, 0.48, 0.45, fw * 0.36, 1.13);
+        box(group, dark, 0.4, 0.26, 0.03, fw * 0.36, 1.16, 0.24);
+      } else {
+        box(group, navy, fw * 0.75, 0.75, 0.10, 0, 1.28, -fd * 0.4);
+        for (let i = 0; i < 5; i++) box(group, gold, 0.06, 0.35, 0.06, -0.65 + i * 0.30, 1.32, -fd * 0.33);
+        box(group, red, 0.52, 0.23, 0.36, 0.4, 1.0);
+      }
+    } else if (kind === 'table') {
+      cylinder(group, trim, 0.16, 0.8, 0, 0.4, 0);
+      box(group, cream, fw, 0.10, fd, 0, 0.85);
+      cylinder(group, gold, 0.09, 0.14, 0.25, 0.97, 0.16);
+      box(group, teal, 0.35, 0.03, 0.4, -0.2, 0.92);
+    } else if (kind === 'shower') {
+      box(group, white, fw, 0.13, fd);
+      box(group, glass, 0.05, 1.8, fd, fw / 2, 0.9);
+      box(group, glass, fw, 1.8, 0.05, 0, 0.9, -fd / 2);
+      strut(group, hull, [0.2, 0.4, -0.4], [0.2, 1.65, -0.4], 0.055);
+      cylinder(group, trim, 0.17, 0.06, 0.2, 1.65, -0.2);
+    } else if (kind === 'toilet') {
+      cylinder(group, white, 0.30, 0.48, 0, 0.24, 0.1);
+      cylinder(group, trim, 0.23, 0.035, 0, 0.50, 0.1);
+      box(group, white, 0.6, 0.75, 0.25, 0, 0.4, -0.30);
+    } else if (kind === 'recharge') {
+      box(group, trim, fw, 0.14, fd);
+      for (const dx of [-0.55, 0.55]) {
+        box(group, teal, 0.66, 1.0, 0.75, dx, 0.63);
+        box(group, gold, 0.69, 0.10, 0.78, dx, 1.19);
+        for (let i = 0; i < 4; i++) box(group, glow, 0.32, 0.07, 0.035, dx, 0.4 + i * 0.19, 0.4);
+      }
+      animated.recharge.lamp = box(group, glow, fw * 0.8, 0.04, 0.12, 0, 0.17, fd * 0.46);
+    } else if (kind === 'drone') {
+      box(group, trim, fw, 0.16, fd);
+      box(group, teal, fw - 0.2, 0.03, fd - 0.2, 0, 0.18);
+      for (const dz of [-0.80, 0.80]) box(group, gold, fw - 0.15, 0.02, 0.08, 0, 0.21, dz);
+      const vehicle = drone(group);
+      vehicle.name = 'recon-drone';
+      vehicle.position.y = 0.42;
+      animated.drone.vehicle = vehicle;
+      for (const dx of [-1.2, 1.2]) box(group, glow, 0.08, 0.03, fd * 0.7, dx, 0.22);
+    } else if (kind === 'radar') {
+      screen(group, -0.35, 0, 0.85);
+      const dish = new THREE.Group();
+      dish.position.set(0.65, 1.05, 0);
+      cylinder(group, hull, 0.20, 1.0, 0.65, 0.5, 0);
+      const reflector = new THREE.Mesh(new THREE.SphereGeometry(0.58, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), teal);
+      reflector.rotation.x = 0.75;
+      reflector.scale.y = 0.35;
+      dish.add(reflector);
+      strut(dish, gold, [0, 0, 0], [0, 0.5, 0.2], 0.05);
+      group.add(dish);
+      animated.radar.dish = dish;
+    } else if (kind === 'payloadRack') {
+      for (const dx of [-fw / 2, fw / 2]) box(group, trim, 0.10, 1.4, fd, dx, 0.7);
+      for (const height of [0.12, 0.85]) {
+        box(group, hull, fw, 0.10, fd, 0, height);
+        for (const dx of [-0.55, 0.55]) {
+          const capsule = cylinder(group, navy, 0.23, 1.2, dx, height + 0.29, 0);
+          capsule.rotation.x = Math.PI / 2;
+          box(group, gold, 0.48, 0.06, 0.18, dx, height + 0.30, -0.48);
+        }
+      }
+    } else if (kind === 'payload') {
+      box(group, dark, fw, 0.12, fd);
+      for (const dx of [-fw * 0.27, fw * 0.27]) box(group, navy, fw * 0.45, 0.06, fd - 0.15, dx, 0.11);
+      for (let i = 0; i < 7; i++) {
+        const stripe = box(group, gold, 0.11, 0.025, 0.32, -fw / 2 + 0.3 + i * 0.43, 0.16, fd / 2 - 0.15);
+        stripe.rotation.y = -0.5;
+      }
+      const capsule = cylinder(scene, navy, 0.30, 1.25, group.position.x, -1, group.position.z);
+      capsule.name = 'released-payload';
+      capsule.visible = false;
+      animated.payload.capsule = capsule;
+    } else if (kind === 'cargoRack') {
+      for (const dx of [-fw / 2, fw / 2]) box(group, trim, 0.09, 1.8, fd, dx, 0.9);
+      for (const height of [0.08, 0.9]) {
+        box(group, hull, fw, 0.08, fd, 0, height);
+        for (const dz of [-1.0, 0, 1.0]) box(group, cream, fw * 0.80, 0.65, 0.88, 0, height + 0.37, dz);
+      }
+    } else if (kind === 'logistics') {
+      box(group, trim, fw, 0.3, fd);
+      for (let i = 0; i < 10; i++) {
+        const roller = cylinder(group, hull, 0.07, fd * 0.9, -fw / 2 + 0.2 + i * (fw - 0.4) / 9, 0.34, 0);
+        roller.rotation.x = Math.PI / 2;
+      }
+      const cargo = box(group, cream, 0.65, 0.65, 0.65, -0.8, 0.72);
+      cargo.name = 'conveyor-cargo';
+      box(cargo, teal, 0.12, 0.025, 0.66, 0, 0.34);
+      animated.logistics.cargo = cargo;
+    }
   }
-  for (const row of [5, 8, 11]) {
-    const [wx, wz] = worldPosition(1.5, row);
-    box(ship, trim, 2.13, 0.33, 0.92, wx, 0.17, wz);
-    box(ship, cream, 2.08, 0.21, 0.89, wx, 0.44, wz, 0.09);
-    box(ship, row === 5 ? teal : navy, 1.38, 0.08, 0.91, wx + 0.30, 0.59, wz);
-    box(ship, white, 0.42, 0.16, 0.68, wx - 0.71, 0.61, wz, 0.07);
-    box(ship, gold, 0.08, 0.55, 0.78, wx - 1.08, 0.5, wz);
-  }
-  for (const row of [7, 9]) {
-    const [wx, wz] = worldPosition(WIDTH - 2.5, row);
-    box(ship, trim, 2.12, 0.24, 0.88, wx, 0.15, wz);
-    box(ship, teal, 2.12, 0.23, 0.85, wx, 0.38, wz, 0.09);
-    box(ship, navy, 2.14, 0.63, 0.18, wx, 0.64, wz + (row === 7 ? -0.37 : 0.37));
-    for (const side of [-1, 1]) box(ship, navy, 0.14, 0.43, 0.85, wx + side * 1.02, 0.48, wz);
-  }
-  for (const column of [WIDTH - 3, WIDTH - 2]) {
-    const [wx, wz] = worldPosition(column, 5);
-    box(ship, cream, 1.10, 0.77, 0.90, wx, 0.38, wz);
-    box(ship, trim, 1.13, 0.07, 0.94, wx, 0.80, wz);
-    box(ship, teal, 0.52, 0.06, 0.42, wx, 0.85, wz);
-    box(ship, gold, 0.16, 0.19, 0.16, wx + 0.3, 0.93, wz);
-  }
-
-  const crates = state.crates.map((crate, index) => {
+  const crates = state.crates.map((crate) => {
     const group = new THREE.Group();
     const [x, z] = worldPosition(crate.x, crate.z);
     group.position.set(x, 0, z);
-    if (crate.kind === 'battery') {
-      box(group, trim, 0.86, 0.77, 0.83, 0, 0.40, 0, 0.07);
-      box(group, gold, 0.88, 0.13, 0.85, 0, 0.79, 0);
-      for (const side of [-1, 1]) {
-        box(group, side < 0 ? teal : material(0xe66d5a), 0.19, 0.15, 0.19, side * 0.25, 0.93, 0);
-        box(group, hull, 0.07, 0.62, 0.86, side * 0.31, 0.39, 0);
-      }
-      box(group, dark, 0.39, 0.21, 0.03, 0, 0.46, 0.43);
-      for (let i = 0; i < 3; i++) box(group, glow, 0.075, 0.11, 0.035, -0.11 + i * 0.11, 0.46, 0.45);
-    } else if (crate.kind === 'toolbox') {
-      const red = material(0xd67250, 0.25);
-      box(group, red, 0.93, 0.44, 0.68, 0, 0.26, 0, 0.07);
-      box(group, trim, 0.96, 0.13, 0.71, 0, 0.54, 0);
-      box(group, hull, 0.43, 0.07, 0.12, 0, 0.77, 0);
-      for (const side of [-1, 1]) {
-        box(group, hull, 0.07, 0.19, 0.12, side * 0.18, 0.68, 0);
-        box(group, gold, 0.10, 0.19, 0.045, side * 0.28, 0.47, 0.36);
-      }
-    } else {
-    box(group, cream, 0.83, 0.70, 0.83, 0, 0.37, 0, 0.07);
-    for (const side of [-1, 1]) {
-      box(group, trim, 0.89, 0.07, 0.89, 0, 0.37 + side * 0.28, 0);
-      box(group, trim, 0.08, 0.62, 0.87, side * 0.36, 0.37, 0);
-    }
-    box(group, index % 2 ? teal : gold, 0.18, 0.025, 0.86, 0, 0.735, 0);
-    box(group, trim, 0.32, 0.12, 0.03, 0, 0.43, 0.43);
-    }
     scene.add(group);
+    const battery = crate.kind === 'battery', toolbox = crate.kind === 'toolbox';
+    box(group, battery ? trim : toolbox ? red : cream, 0.78, toolbox ? 0.42 : 0.70, 0.78);
+    box(group, battery ? gold : trim, 0.83, 0.10, 0.83, 0, toolbox ? 0.46 : 0.73);
+    if (battery) for (const dx of [-0.22, 0.22]) box(group, dx < 0 ? teal : red, 0.16, 0.12, 0.16, dx, 0.86);
+    else if (toolbox) {
+      for (const dx of [-0.17, 0.17]) box(group, hull, 0.06, 0.18, 0.12, dx, 0.60);
+      box(group, hull, 0.4, 0.06, 0.12, 0, 0.71);
+    } else box(group, teal, 0.15, 0.025, 0.83, 0, 0.80);
     return group;
   });
   return {
-    crates,
+    crates, stations,
+    interact(id) {
+      const station = animated[id];
+      if (!station || station.active > 0) return false;
+      station.active = id === 'drone' ? 10 : 4;
+      return true;
+    },
+    reset() { Object.values(animated).forEach((station) => { station.active = 0; }); },
     update(delta) {
-      propellers.forEach((rotor, index) => { rotor.rotation.z = (rotor.rotation.z + delta * (index ? -24 : 24)) % (Math.PI * 2); });
+      rotors.forEach((rotor, i) => { rotor.rotation.z = (rotor.rotation.z + delta * (i % 2 ? -25 : 25)) % (Math.PI * 2); });
+      for (const station of Object.values(animated)) station.active = Math.max(0, station.active - delta);
+      const flight = animated.drone;
+      const t = 10 - flight.active;
+      flight.vehicle.position.set(flight.active ? Math.sin(t * Math.PI / 10) * 9 : 0,
+        0.42 + (flight.active ? Math.sin(t * Math.PI / 10) * 4 : 0), flight.active ? -Math.sin(t * Math.PI / 10) * 6 : 0);
+      flight.vehicle.rotation.y += delta * (flight.active ? 1.4 : 0.12);
+      animated.radar.dish.rotation.y += delta * (animated.radar.active ? 3 : 0.7);
+      animated.recharge.lamp.scale.x = animated.recharge.active ? 0.6 + Math.abs(Math.sin(animated.recharge.active * 6)) * 0.4 : 1;
+      animated.logistics.cargo.position.x = animated.logistics.active ? -0.8 + Math.sin((4 - animated.logistics.active) * Math.PI / 4) * 1.6 : -0.8;
+      const drop = animated.payload;
+      drop.capsule.visible = drop.active > 0;
+      drop.capsule.position.y = -1.5 - (4 - drop.active) * (4 - drop.active) * 1.6;
+      drop.capsule.rotation.z += delta * 0.4;
     },
   };
 }
 
 export function createSky(scene) {
-  const clouds = [];
-  const surface = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.85 });
-  const geometry = new THREE.SphereGeometry(1, 12, 8);
-  for (let i = 0; i < 17; i++) {
+  const clouds = [], surface = mat(0xffffff, 0), geometry = new THREE.SphereGeometry(1, 12, 8);
+  for (let i = 0; i < 22; i++) {
     const cloud = new THREE.Group();
     for (let j = 0; j < 5; j++) {
       const puff = new THREE.Mesh(geometry, surface);
@@ -226,15 +340,9 @@ export function createSky(scene) {
       puff.scale.set(1.6, 0.5 + (j % 2) * 0.25, 0.95);
       cloud.add(puff);
     }
-    cloud.position.set(((i * 13) % 49) - 24, -4.5 - (i % 4) * 1.6, ((i * 19) % 53) - 26);
-    cloud.userData.speed = 0.35 + (i % 3) * 0.18;
+    cloud.position.set(((i * 13) % 57) - 28, -5.5 - (i % 4) * 1.6, ((i * 19) % 75) - 37);
     scene.add(cloud);
     clouds.push(cloud);
   }
-  return (delta) => {
-    for (const cloud of clouds) {
-      cloud.position.z += delta * cloud.userData.speed;
-      if (cloud.position.z > 29) cloud.position.z = -29;
-    }
-  };
+  return (delta) => clouds.forEach((cloud) => { cloud.position.z += delta * 0.65; if (cloud.position.z > 39) cloud.position.z = -39; });
 }

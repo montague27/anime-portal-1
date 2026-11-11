@@ -11,13 +11,14 @@
     <main id="game" aria-label="Toasty's flying aircraft">
       <div id="viewport"></div>
       <p id="loading" role="status">Loading characters&hellip;</p>
-      <button id="reset" class="reset" type="button" aria-label="Reset aircraft" title="Reset aircraft">&#8634;</button>
+      <aside id="encounter" aria-label="Nearby character" hidden>
+        <div class="encounter-portrait"><canvas id="encounter-portrait" aria-hidden="true"></canvas></div>
+        <p id="encounter-name" aria-live="polite"></p>
+      </aside>
       <aside class="player-hud" aria-label="Toasty character stats">
         <div class="avatar" role="img" aria-label="Toasty's 3D model">
           <canvas id="toasty-portrait" aria-hidden="true"></canvas>
         </div>
-        <div class="player-panel">
-          <div class="player-name">TOASTY</div>
           <dl class="player-stats">
             <div class="stat power" title="Mechanical power">
               <dt><span class="sr-only">Mechanical power</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-.6 2.2-2 .9-2-.7-2 3.4L5 10.5v2.8l-1.6 1.6 2 3.4 2.2-.7 1.9 1 .6 2.4h3.8l.6-2.3 2-.9 2 .7 2-3.4-1.5-1.6v-2.8l1.6-1.6-2-3.4-2.2.7-1.9-1L13.9 3Z"/><circle cx="12" cy="12" r="3"/></svg></dt>
@@ -32,7 +33,6 @@
               <dd>24</dd>
             </div>
           </dl>
-        </div>
       </aside>
       <div class="dpad" role="group" aria-label="Movement controls">
         <button type="button" data-direction="up" aria-label="Move forward">&#8593;</button>
@@ -42,6 +42,7 @@
       </div>
       <p id="render-error" hidden>Your browser could not start WebGL. Try enabling hardware acceleration.</p>
       <p id="status" class="sr-only" role="status"></p>
+      <p id="mission-feedback" role="status" hidden></p>
     </main>
     <script type="module" src="./src/main.js"></script>
   </body>

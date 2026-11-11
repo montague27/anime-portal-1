@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createWorkshop, movePlayer, updateNpcs, interactNearby, isBlocked, motionActive, WIDTH, HEIGHT,
+  createWorkshop, movePlayer, updateNpcs, interactNearby, nearbyCharacter, isBlocked, motionActive, WIDTH, HEIGHT,
 } from '../src/workshop.js';
 
 function seededRandom() {
@@ -47,32 +47,32 @@ test('NPCs roam independently while preserving occupied and reserved cells', () 
 test('walking into an NPC greets them and keeps both grid positions', () => {
   const state = createWorkshop();
   state.npcs[0].x = 5;
-  state.npcs[0].z = 5;
+  state.npcs[0].z = 14;
   const result = movePlayer(state, 'up', 1);
   assert.deepEqual(result, { moved: false, interacted: 0 });
-  assert.deepEqual(state.player, { x: 5, z: 6 });
-  assert.equal(state.npcs[0].z, 5);
+  assert.deepEqual(state.player, { x: 5, z: 15 });
+  assert.equal(state.npcs[0].z, 14);
   assert.equal(state.npcs[0].action, 'dance');
 });
 
 test('crate pushing respects an NPC’s reserved departure cell', () => {
   const state = createWorkshop();
-  state.crates = [{ id: 0, x: 5, z: 5 }];
+  state.crates = [{ id: 0, x: 5, z: 14 }];
   state.npcs = [{
-    ...state.npcs[0], x: 6, z: 4,
-    motion: { fromX: 5, fromZ: 4, startedAt: 1, duration: 0.5 },
+    ...state.npcs[0], x: 6, z: 13,
+    motion: { fromX: 5, fromZ: 13, startedAt: 1, duration: 0.5 },
   }];
   assert.equal(movePlayer(state, 'up', 1.1).moved, false);
-  assert.equal(state.crates[0].z, 5);
+  assert.equal(state.crates[0].z, 14);
   assert.equal(movePlayer(state, 'up', 1.6).pushed, 0);
-  assert.equal(state.crates[0].z, 4);
+  assert.equal(state.crates[0].z, 13);
 });
 
 test('NPCs greet one another without moving through one another', () => {
   const state = createWorkshop();
   state.npcs = state.npcs.slice(0, 2);
-  Object.assign(state.npcs[0], { x: 2, z: 4, nextThink: 0 });
-  Object.assign(state.npcs[1], { x: 3, z: 4, nextThink: 0 });
+  Object.assign(state.npcs[0], { x: 2, z: 8, nextThink: 0 });
+  Object.assign(state.npcs[1], { x: 2, z: 9, nextThink: 0 });
   updateNpcs(state, 1, seededRandom());
   assert.equal(state.npcs[0].action, 'dance');
   assert.equal(state.npcs[1].action, 'cheer');
@@ -80,11 +80,11 @@ test('NPCs greet one another without moving through one another', () => {
   assert(state.npcs.every((npc) => !npc.motion));
 });
 
-test('E interaction selects a nearby character and respects distance', () => {
+test('nearby interaction selects a character and respects distance', () => {
   const state = createWorkshop();
   assert.equal(interactNearby(state, 1), undefined);
   state.npcs[3].x = 6;
-  state.npcs[3].z = 6;
+  state.npcs[3].z = 15;
   assert.equal(interactNearby(state, 2).name, 'Vita');
   assert.equal(state.npcs[3].action, 'wave');
 });
@@ -95,6 +95,27 @@ test('reset restores NPC positions, decisions, greetings and object positions', 
   updateNpcs(running, 5, seededRandom());
   interactNearby(running, 6);
   assert.deepEqual(createWorkshop(), original);
+});
+
+test('encounter selects the nearest reachable crew member and ignores bulkheads', () => {
+  const state = createWorkshop();
+  state.crates = [];
+  state.player = { x: 4, z: 7 };
+  state.npcs = [
+    { ...state.npcs[0], x: 2, z: 7 }, // Two tiles away, through the cabin wall.
+    { ...state.npcs[1], x: 5, z: 8 },
+    { ...state.npcs[2], x: 5, z: 7 },
+  ];
+  assert.equal(nearbyCharacter(state, 1).id, 2);
+  state.npcs.pop();
+  assert.equal(nearbyCharacter(state, 1).id, 1);
+  state.npcs.pop();
+  assert.equal(nearbyCharacter(state, 1), undefined, 'No portrait through a wall');
+  state.player = { x: 4, z: 8 };
+  state.npcs[0].z = 8;
+  assert.equal(nearbyCharacter(state, 1).id, 0, 'Portrait appears through an open doorway');
+  state.player = { x: 5, z: 15 };
+  assert.equal(nearbyCharacter(state, 1), undefined, 'Portrait disappears after leaving');
 });
 
 test('aircraft rooms connect through doorways and walls block walking and cargo', () => {
@@ -112,12 +133,17 @@ test('aircraft rooms connect through doorways and walls block walking and cargo'
   for (let z = 0; z < HEIGHT; z++) for (let x = 0; x < WIDTH; x++) {
     if (!isBlocked(x, z)) assert(reached.has(x + ',' + z), 'Disconnected cabin cell: ' + x + ',' + z);
   }
-  assert(reached.has('7,1'), 'Cockpit is accessible');
-  assert(reached.has('2,6'), 'Rest cabin is accessible');
-  assert(reached.has('12,8'), 'Main lounge is accessible');
-  state.player = { x: 5, z: 4 };
+  assert(reached.has('5,1'), 'Cockpit is accessible');
+  assert(reached.has('2,9'), 'Rest cabin is accessible');
+  assert(reached.has('8,8'), 'Galley is accessible');
+  assert(reached.has('9,11'), 'Washroom is accessible');
+  assert(reached.has('2,17'), 'Engineering is accessible');
+  assert(reached.has('8,17'), 'Drone bay is accessible');
+  assert(reached.has('2,24'), 'Payload bay is accessible');
+  assert(reached.has('8,26'), 'Logistics is accessible');
+  state.player = { x: 2, z: 6 };
   assert.equal(movePlayer(state, 'up').moved, false, 'Cannot walk through cockpit bulkhead');
-  state.player = { x: 5, z: 5 };
-  state.crates = [{ id: 0, x: 5, z: 4 }];
+  state.player = { x: 2, z: 7 };
+  state.crates = [{ id: 0, x: 2, z: 6 }];
   assert.equal(movePlayer(state, 'up').moved, false, 'Cannot push cargo through a bulkhead');
 });

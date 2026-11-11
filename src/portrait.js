@@ -31,3 +31,50 @@ export function createPortrait(canvas) {
     renderer.render(scene, camera);
   };
 }
+
+// Render the live VRM from the front without cloning its rig or moving it out of the world.
+export function createEncounterPortrait(canvas, scene) {
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.03, 10);
+  camera.layers.set(1);
+  const head = new THREE.Vector3(), facing = new THREE.Vector3(), rotation = new THREE.Quaternion();
+  let previous = null;
+  return (model) => {
+    const bounds = canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const ratio = renderer.getPixelRatio();
+    if (canvas.width !== Math.floor(bounds.width * ratio) || canvas.height !== Math.floor(bounds.height * ratio)) {
+      renderer.setSize(bounds.width, bounds.height, false);
+      camera.aspect = bounds.width / bounds.height;
+      camera.updateProjectionMatrix();
+    }
+    if (previous !== model) {
+      previous?.traverse((part) => { if (part.isMesh) part.layers.disable(1); });
+      model.traverse((part) => { if (part.isMesh) part.layers.enable(1); });
+      previous = model;
+    }
+    scene.traverse((part) => { if (part.isLight) part.layers.enable(1); });
+    model.updateWorldMatrix(true, true);
+    const vrm = model.userData.assetRig.vrm;
+    const bone = vrm.humanoid.getRawBoneNode('head');
+    if (bone) bone.getWorldPosition(head);
+    else head.copy(model.position).add(new THREE.Vector3(0, 1.5, 0));
+    head.y += 0.035;
+    model.getWorldQuaternion(rotation);
+    facing.set(0, 0, 1).applyQuaternion(rotation);
+    camera.position.copy(head).addScaledVector(facing, 0.95);
+    camera.position.y += 0.04;
+    camera.lookAt(head.x, head.y - 0.08, head.z);
+    const background = scene.background;
+    try {
+      scene.background = null;
+      renderer.render(scene, camera);
+    } finally {
+      scene.background = background;
+    }
+  };
+}
