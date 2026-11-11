@@ -85,7 +85,7 @@ test('E interaction selects a nearby character and respects distance', () => {
   assert.equal(interactNearby(state, 1), undefined);
   state.npcs[3].x = 6;
   state.npcs[3].z = 6;
-  assert.equal(interactNearby(state, 2).name, 'Reze');
+  assert.equal(interactNearby(state, 2).name, 'Vita');
   assert.equal(state.npcs[3].action, 'wave');
 });
 

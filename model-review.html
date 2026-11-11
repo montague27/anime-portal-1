@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><title>Character model review</title><style>body{margin:0;background:#a7adb7}canvas{display:block}</style></head>
+<body><script type="module">
+import * as THREE from 'three';
+import {loadAuthoredFigure,animateAuthoredFigure} from './src/character-assets.js';
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x89919c);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.12;
+document.body.append(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xfff6ec,0x747d95,1.8));
+const light=new THREE.DirectionalLight(0xfff0df,2.6);
+light.position.set(-3,5,7);scene.add(light);
+const camera=new THREE.OrthographicCamera(-2.0,2.0,2.0*innerHeight/innerWidth,-2.0*innerHeight/innerWidth,0.1,30);
+camera.position.set(0,1.7,7);camera.lookAt(0,0.95,0);
+const models=await Promise.all(['miku','shino','shibu','vita'].map(loadAuthoredFigure));
+models.forEach((model,index)=>{model.position.x=(index-1.5)*0.95;scene.add(model);});
+camera.left=-2.2;camera.right=2.2;
+camera.top=2.2*innerHeight/innerWidth;camera.bottom=-2.2*innerHeight/innerWidth;
+camera.updateProjectionMatrix();
+let last=performance.now()/1000;
+renderer.setAnimationLoop(()=>{
+ const now=performance.now()/1000;const delta=Math.min(now-last,0.05);last=now;
+ models.forEach((model,index)=>animateAuthoredFigure(model,{time:now+index,delta,moving:false,angle:0,action:'idle',reducedMotion:false}));
+ renderer.render(scene,camera);
+});
+</script></body></html>

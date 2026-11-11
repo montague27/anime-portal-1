@@ -1,0 +1,20 @@
+Miku
+Character copyright: Crypton Future Media, Inc.
+Model identity in the VRM metadata: Tda-style Hatsune Miku V4X, ver. 1.0.
+Original modeling credit in the VRM metadata: Tda.
+VRM distribution: https://github.com/outrine/HatsuneMiku_VRM_Model
+Downloaded archive: Model_Miku_V2.7z, containing Miku4.vrm.
+The distributor requests attribution and prohibits use in VRChat.
+The original VRM file is retained without modification.
+
+The repository description also credits Jjinomu. This differs from the Tda
+credit embedded in this particular V2 file, so both are recorded here.
+
+Sendagaya Shino, Sendagaya Shibu, Vita
+Creator: pixiv / VRoid Project.
+License: CC0, as declared in the embedded VRM metadata of all three files.
+Distribution: https://github.com/madjin/vrm-samples/tree/master/vroid/beta
+Original files: Sendagaya_Shino.vrm, Sendagaya_Shibu.vrm, Vita.vrm.
+VRoid sample-model terms:
+https://vroid.pixiv.help/hc/en-us/articles/4402614652569
+Files are retained without modification. Names are shortened only in filenames.

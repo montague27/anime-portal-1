@@ -1,5 +1,7 @@
-export const WIDTH = 11;
-export const HEIGHT = 9;
+import { CHARACTERS } from './characters.js';
+
+export const WIDTH = 15;
+export const HEIGHT = 11;
 export const CELL_SIZE = 1.18;
 
 export const DIRECTIONS = {
@@ -9,20 +11,25 @@ export const DIRECTIONS = {
   right: { x: 1, z: 0, angle: Math.PI / 2 },
 };
 
-const startingCrates = [[4, 4], [6, 4], [5, 2], [2, 5], [8, 3], [7, 6]];
+const startingCrates = [[6, 5], [6, 4], [10, 5], [2, 7], [9, 6], [7, 6]];
 const startingFigures = [
   { figure: 'miku', name: 'Miku', x: 2, z: 3 },
-  { figure: 'emu', name: 'Emu Otori', x: 4, z: 2 },
-  { figure: 'aki', name: 'Aki', x: 7, z: 3 },
-  { figure: 'reze', name: 'Reze', x: 8, z: 5 },
+  { figure: 'shino', name: CHARACTERS.shino.name, x: 4, z: 2 },
+  { figure: 'shibu', name: CHARACTERS.shibu.name, x: 7, z: 3 },
+  { figure: 'vita', name: CHARACTERS.vita.name, x: 8, z: 5 },
 ];
-const npcTiming = {
-  miku: { speed: 0.38, pause: 1.5, gesture: 'dance' },
-  emu: { speed: 0.29, pause: 0.7, gesture: 'cheer' },
-  aki: { speed: 0.48, pause: 2.5, gesture: 'nod' },
-  reze: { speed: 0.42, pause: 1.9, gesture: 'wave' },
-};
-const fixtures = [[1, 1], [2, 1], [3, 1], [7, 1], [8, 1], [9, 1], [1, 7], [9, 7]];
+// Bulkheads and furniture share one grid map with the rendered aircraft.
+export const bulkheads = [
+  ...Array.from({ length: WIDTH }, (_, x) => [x, 3]).filter(([x]) => ![2, 7, 8].includes(x)),
+  ...[4, 5, 8, 9, 10].map((z) => [4, z]),
+];
+export const furniture = [
+  ...[1, 2, 3, 5, 6, 8, 9, 11, 12, 13].map((x) => [x, 0]),
+  [5, 1], [9, 1],
+  [1, 5], [2, 5], [1, 8], [2, 8],
+  [12, 7], [13, 7], [12, 9], [13, 9], [12, 5], [13, 5],
+];
+const fixtures = [...bulkheads, ...furniture];
 const key = (x, z) => x + ',' + z;
 const fixedCells = new Set(fixtures.map(([x, z]) => key(x, z)));
 
@@ -59,7 +66,7 @@ function beginMove(actor, x, z, now, duration) {
 }
 
 export function greetNpc(state, npc, now, partner = state.player) {
-  npc.action = npcTiming[npc.figure].gesture;
+  npc.action = CHARACTERS[npc.figure].gesture;
   npc.greetingUntil = now + 2.4;
   npc.nextGreeting = now + 8;
   npc.nextThink = now + 2.6;
@@ -123,7 +130,7 @@ function findNextStep(state, npc, destination, now) {
 export function updateNpcs(state, now, random = Math.random) {
   for (const npc of state.npcs) {
     if (motionActive(npc, now) || now < npc.nextThink) continue;
-    const timing = npcTiming[npc.figure];
+    const timing = CHARACTERS[npc.figure];
     npc.action = 'idle';
     const partner = [state.player, ...state.npcs.filter((other) => other !== npc)]
       .find((actor) => !motionActive(actor, now) &&

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createToasty } from './toasty.js';
 import { createRoom } from './room.js';
-import { createFigure, animateFigure } from './figures.js';
+import { loadAuthoredFigure, animateAuthoredFigure } from './character-assets.js';
 import {
   createWorkshop, movePlayer, worldPosition, DIRECTIONS, WIDTH, HEIGHT, CELL_SIZE,
   updateNpcs, interactNearby, greetNpc, motionActive,
@@ -12,6 +12,7 @@ const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
 const reset = document.querySelector('#reset');
 const greet = document.querySelector('#greet');
+const loading = document.querySelector('#loading');
 const directionButtons = [...document.querySelectorAll('[data-direction]')];
 const keyDirections = {
   KeyW: 'up', KeyA: 'left', KeyS: 'down', KeyD: 'right',
@@ -25,9 +26,9 @@ function start() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
+  renderer.toneMappingExposure = 1.12;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push crates. Press E near Miku, Emu, Aki, or Reze to greet them, or click a character.');
+  renderer.domElement.setAttribute('aria-label', 'Move Toasty with WASD or arrow keys. Push crates. Press E near Miku, Shino, Shibu, or Vita to greet them, or click a character. Scroll to zoom.');
   viewport.append(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -35,8 +36,8 @@ function start() {
   const camera = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 80);
   camera.position.set(10, 14, 15);
   camera.lookAt(0, 0, 0);
-  scene.add(new THREE.HemisphereLight(0xfff2d4, 0x537e86, 2.4));
-  const light = new THREE.DirectionalLight(0xffe5b4, 3.4);
+  scene.add(new THREE.HemisphereLight(0xfff6ec, 0x537e86, 1.8));
+  const light = new THREE.DirectionalLight(0xfff0df, 2.6);
   light.position.set(-5, 13, 7);
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
@@ -46,13 +47,42 @@ function start() {
   scene.add(new THREE.DirectionalLight(0xb2e9e9, 1.3));
 
   let state = createWorkshop();
+  let charactersReady = false;
+  let loadingCharacters = false;
+  greet.disabled = true;
   const crates = createRoom(scene, state);
   const npcModels = state.npcs.map((npc) => {
-    const model = createFigure(npc.figure);
+    const model = new THREE.Group();
     model.userData.npcId = npc.id;
     scene.add(model);
     return model;
   });
+  const loadCharacters = async () => {
+    if (loadingCharacters) return;
+    loadingCharacters = true;
+    loading.hidden = false;
+    loading.textContent = 'Loading characters…';
+    const results = await Promise.allSettled(state.npcs.map(async (npc) => {
+      if (npcModels[npc.id].userData.assetRig) return;
+      const model = await loadAuthoredFigure(npc.figure);
+      const previous = npcModels[npc.id];
+      model.position.copy(previous.position);
+      model.rotation.copy(previous.rotation);
+      model.userData.npcId = npc.id;
+      npcModels[npc.id] = model;
+      scene.add(model);
+      scene.remove(previous);
+    }));
+    const failures = results.filter((result) => result.status === 'rejected');
+    charactersReady = failures.length === 0;
+    loadingCharacters = false;
+    loading.hidden = charactersReady;
+    greet.disabled = !charactersReady;
+    if (!charactersReady) {
+      failures.forEach((result) => console.error('Character loading failed:', result.reason));
+      loading.textContent = 'A character could not load. Press reset to retry.';
+    }
+  };
   const bot = createToasty();
   bot.root.scale.setScalar(0.29);
   scene.add(bot.root);
@@ -93,6 +123,21 @@ function start() {
   };
   new ResizeObserver(fitCamera).observe(viewport);
   fitCamera();
+  renderer.domElement.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const bounds = renderer.domElement.getBoundingClientRect();
+    const point = new THREE.Vector3(
+      (event.clientX - bounds.left) / bounds.width * 2 - 1,
+      -(event.clientY - bounds.top) / bounds.height * 2 + 1, 0,
+    );
+    const before = point.clone().unproject(camera);
+    camera.zoom = THREE.MathUtils.clamp(camera.zoom * Math.exp(-event.deltaY * 0.001), 1, 3.5);
+    camera.updateProjectionMatrix();
+    const after = point.unproject(camera);
+    camera.position.add(before.sub(after));
+    if (camera.zoom === 1) camera.position.set(10, 14, 15);
+    camera.updateMatrixWorld();
+  }, { passive: false });
 
   const held = new Map();
   let queuedDirection = '';
@@ -118,6 +163,7 @@ function start() {
   syncPositions();
 
   const greetNearby = () => {
+    if (!charactersReady) return;
     const npc = interactNearby(state, simulationTime);
     status.textContent = npc ? 'Greeting ' + npc.name + '.' : 'Move closer to a character to greet them.';
   };
@@ -125,6 +171,7 @@ function start() {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   renderer.domElement.addEventListener('pointerup', (event) => {
+    if (!charactersReady) return;
     const bounds = renderer.domElement.getBoundingClientRect();
     pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1,
       -(event.clientY - bounds.top) / bounds.height * 2 + 1);
@@ -149,13 +196,18 @@ function start() {
     releaseInputs();
     state = createWorkshop();
     simulationTime = 0;
+    camera.zoom = 1;
+    camera.position.set(10, 14, 15);
+    camera.updateProjectionMatrix();
     step = null;
     targetAngle = 0;
     bot.root.rotation.y = 0;
     syncPositions();
     status.textContent = 'Workshop reset.';
+    if (!charactersReady) void loadCharacters();
   });
   window.addEventListener('keydown', (event) => {
+    if (!charactersReady) return;
     if (event.target.closest('input, textarea, select, [contenteditable="true"]') ||
         event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.code === 'KeyE') {
@@ -177,6 +229,7 @@ function start() {
   });
   for (const button of directionButtons) {
     button.addEventListener('pointerdown', (event) => {
+      if (!charactersReady) return;
       event.preventDefault();
       button.setPointerCapture(event.pointerId);
       const direction = button.dataset.direction;
@@ -199,6 +252,10 @@ function start() {
     const delta = Math.min(realTime - lastTime, 0.05);
     lastTime = realTime;
     if (document.hidden) return;
+    if (!charactersReady) {
+      renderer.render(scene, camera);
+      return;
+    }
     simulationTime += delta;
     const now = simulationTime;
     let progress = 0;
@@ -261,7 +318,7 @@ function start() {
         model.position.x = THREE.MathUtils.lerp(fromX, x, blend);
         model.position.z = THREE.MathUtils.lerp(fromZ, z, blend);
       }
-      animateFigure(model, {
+      animateAuthoredFigure(model, {
         time: now + npc.id * 0.7, delta, moving: Boolean(motionActive(npc, now)),
         angle: npc.angle, action: now < npc.greetingUntil ? npc.action : 'idle',
         reducedMotion: reducedMotion.matches,
@@ -271,6 +328,7 @@ function start() {
     selectedTile.position.z = bot.root.position.z;
     renderer.render(scene, camera);
   });
+  void loadCharacters();
 }
 
 try {
@@ -278,6 +336,7 @@ try {
 } catch (error) {
   console.error(error);
   document.querySelector('#render-error').hidden = false;
+  loading.hidden = true;
   reset.disabled = true;
   greet.disabled = true;
   directionButtons.forEach((button) => { button.disabled = true; });
